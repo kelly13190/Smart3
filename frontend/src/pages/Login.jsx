@@ -15,9 +15,14 @@ const Login = () => {
   // ⭐ ตรวจสอบว่า Login อยู่แล้วหรือไม่
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (token) {
-      // ถ้า Login แล้ว -> ไปหน้า Dashboard เลย
+    const role = localStorage.getItem("role"); // เช็ค Role ด้วย
+
+    if (token && role) {
+      // ต้องมีทั้งคู่ถึงจะยอมให้ข้ามไป Dashboard
       navigate("/dashboard");
+    } else if (token && !role) {
+      // ถ้ามีแต่ Token แต่ไม่มี Role (ข้อมูลพัง) -> ให้ล้างทิ้งแล้วอยู่หน้า Login ต่อ
+      localStorage.clear();
     }
   }, [navigate]);
 
