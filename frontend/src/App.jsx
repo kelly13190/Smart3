@@ -25,9 +25,15 @@ import DeviceSetup from "./pages/teacher/DeviceSetup";
 // ตัวช่วย Redirect
 const DashboardRedirect = () => {
   const role = localStorage.getItem("role");
+
   if (role === "teacher") return <Navigate to="/teacher/dashboard" replace />;
   if (role === "student") return <Navigate to="/student/dashboard" replace />;
-  return <Navigate to="/" replace />; // ถ้าไม่มี Role เด้งออกไป Login
+  if (role === "admin") return <Navigate to="/teacher/dashboard" replace />; // หรือ admin dashboard
+
+  // ⚠️ ถ้าไม่เข้าเคสไหนเลย (เช่น role หาย หรือ role เป็น undefined)
+  // ต้องล้าง Token ทิ้ง ก่อนส่งกลับไป Login เพื่อป้องกัน Loop
+  localStorage.clear();
+  return <Navigate to="/" replace />;
 };
 
 function App() {
