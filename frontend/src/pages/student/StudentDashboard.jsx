@@ -24,7 +24,6 @@ const Dashboard = () => {
               </span>
               <span className="text-xs text-gray-400">Monday</span>
             </div>
-            <span className="ml-auto text-xs text-gray-400">▼</span>
           </div>
 
           <div className="flex flex-col">
@@ -36,7 +35,6 @@ const Dashboard = () => {
               <span className="text-xs text-gray-400">▼</span>
             </div>
           </div>
-        </div>
 
         {/* Stats Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

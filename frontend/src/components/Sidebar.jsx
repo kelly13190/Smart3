@@ -9,6 +9,9 @@ import {
   FiLogOut,
   FiCamera,
   FiPieChart,
+  FiServer,
+  FiSettings,
+  FiShield
 } from "react-icons/fi";
 
 const Sidebar = () => {
@@ -26,8 +29,23 @@ const Sidebar = () => {
 
   // ✅ กำหนด Menu Items ให้ตรงกับ App.jsx
   const getMenuItems = () => {
+    if (role === "admin") {
+      return [
+        { icon:<FiServer />, label: "Console", path: "/admin/dashboard" },
+        { icon:<FiShield />, label: "User Management", path: "/admin/user-management" }, //สร้างไฟล์นี้ทีหลัง
+        { icon:<FiSettings />, label: "System Settings", path: "/admin/system-settings" }, //สร้างไฟล์นี้ทีหลัง
+        { icon:<FiFileText />, label: "Student Attendance History", path: "/admin/student-attendance-history" },
+        { icon:<FiMonitor />, label: "Real Time Report", path: "/admin/realtime-report" },
+      ];
+    }
+
     if (role === "teacher" || role === "admin") {
       return [
+        {
+          icon: <FiMonitor />,
+          label: "Start Session",
+          path: "/teacher/device-setup",
+        },
         { icon: <FiHome />, label: "Dashboard", path: "/teacher/dashboard" },
         {
           icon: <FiBook />,
@@ -44,11 +62,6 @@ const Sidebar = () => {
           label: "Attendance Report",
           path: "/teacher/attendance-report",
         },
-        {
-          icon: <FiMonitor />,
-          label: "Device Setup",
-          path: "/teacher/device-setup",
-        },
         { icon: <FiFileText />, label: "Reports", path: "/teacher/reports" }, // หน้าที่ยังไม่สร้าง
       ];
     } else {
@@ -62,8 +75,8 @@ const Sidebar = () => {
         },
         {
           icon: <FiPieChart />,
-          label: "My Attendance",
-          path: "/student/my-attendance",
+          label: "Attendance Report",
+          path: "/student/stu-attendance",
         }
       ];
     }
