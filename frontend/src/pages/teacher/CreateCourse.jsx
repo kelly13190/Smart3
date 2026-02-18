@@ -1,3 +1,4 @@
+// แก้ไขไฟล์ CreateCourse.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -17,11 +18,9 @@ const CreateCourse = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  // คำนวณปีปัจจุบัน + 5 ปี
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => currentYear + i);
 
-  // รายชื่อวันสำหรับทำปุ่มกด
   const daysOptions = [
     { label: "Mo", value: "Monday" },
     { label: "Tu", value: "Tuesday" },
@@ -36,19 +35,18 @@ const CreateCourse = () => {
     course_code: "",
     section: "",
     name: "",
-    description: "",
     semester: "1",
     academic_year: currentYear.toString(),
     day_of_week: "Monday",
     start_time: "09:00",
     end_time: "12:00",
+    start_date: new Date().toISOString().split("T")[0], // ✅ เพิ่มช่องวันที่เริ่มเรียน
   });
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // ฟังก์ชันเลือกวันแบบปุ่มกด
   const handleDaySelect = (dayValue) => {
     setFormData({ ...formData, day_of_week: dayValue });
   };
@@ -59,6 +57,7 @@ const CreateCourse = () => {
 
     try {
       const token = localStorage.getItem("token");
+      // ส่ง formData ไปที่ API (ตอนนี้มี start_date ตามที่ Backend ต้องการแล้ว )
       await axios.post("http://localhost:8000/courses/", formData, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -74,9 +73,7 @@ const CreateCourse = () => {
   return (
     <div className="flex h-screen bg-[#F3F4F6] font-sans">
       <Sidebar />
-
       <main className="flex-1 overflow-y-auto">
-        {/* Header with Gradient Background */}
         <div className="bg-gradient-to-r from-blue-700 to-indigo-600 h-64 relative px-10 pt-10">
           <div className="relative z-10 flex justify-between items-start">
             <div>
@@ -84,7 +81,7 @@ const CreateCourse = () => {
                 Create New Course
               </h1>
               <p className="text-blue-100 opacity-90">
-                Setup your class schedule and details.
+                Setup your class schedule and 15-week sessions.
               </p>
             </div>
             <button
@@ -94,17 +91,12 @@ const CreateCourse = () => {
               <FiX size={24} />
             </button>
           </div>
-
-          {/* Decorative Circles */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-          <div className="absolute bottom-0 left-20 w-32 h-32 bg-blue-500/30 rounded-full blur-2xl"></div>
         </div>
 
-        {/* Form Container (Floating Up) */}
         <div className="px-10 -mt-16 pb-10 relative z-20">
           <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* --- LEFT COLUMN: Course Details --- */}
               <div className="lg:col-span-2 space-y-6">
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
                   <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
@@ -113,102 +105,63 @@ const CreateCourse = () => {
                     </span>
                     Course Information
                   </h3>
-
                   <div className="space-y-5">
-                    {/* Course Code & Section & Name */}
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-                      {/* 1. รหัสวิชา (Code) */}
                       <div className="md:col-span-1">
                         <label className="text-sm font-semibold text-gray-600 mb-1.5 block">
                           Code
                         </label>
-                        <div className="relative">
-                          <FiType className="absolute top-3.5 left-3 text-gray-400" />
-                          <input
-                            type="text"
-                            name="course_code"
-                            required
-                            placeholder="CS101"
-                            value={formData.course_code}
-                            onChange={handleChange}
-                            className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-semibold text-gray-700 placeholder-gray-400"
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          name="course_code"
+                          required
+                          placeholder="CS101"
+                          value={formData.course_code}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-semibold text-gray-700"
+                        />
                       </div>
-
-                      {/* 2. ✅ เพิ่มช่อง Section ตรงนี้ */}
                       <div className="md:col-span-1">
                         <label className="text-sm font-semibold text-gray-600 mb-1.5 block">
                           Section
                         </label>
-                        <div className="relative">
-                          <div className="absolute top-3.5 left-3 text-gray-400 font-bold text-xs">
-                            Sec
-                          </div>
-                          <input
-                            type="text"
-                            name="section"
-                            required
-                            placeholder="1"
-                            value={formData.section}
-                            onChange={handleChange}
-                            className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-semibold text-gray-700 text-center"
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          name="section"
+                          required
+                          placeholder="1"
+                          value={formData.section}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-semibold text-gray-700 text-center"
+                        />
                       </div>
-
-                      {/* 3. ชื่อวิชา (Name) - ปรับให้เหลือ 2 ส่วน */}
                       <div className="md:col-span-2">
                         <label className="text-sm font-semibold text-gray-600 mb-1.5 block">
                           Course Name
                         </label>
-                        <div className="relative">
-                          <FiBook className="absolute top-3.5 left-3 text-gray-400" />
-                          <input
-                            type="text"
-                            name="name"
-                            required
-                            placeholder="Introduction to Computer Science"
-                            value={formData.name}
-                            onChange={handleChange}
-                            className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-semibold text-gray-700 placeholder-gray-400"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Description */}
-                    <div>
-                      <label className="text-sm font-semibold text-gray-600 mb-1.5 block">
-                        Description
-                      </label>
-                      <div className="relative">
-                        <FiAlignLeft className="absolute top-3.5 left-3 text-gray-400" />
-                        <textarea
-                          name="description"
-                          rows="4"
-                          placeholder="What is this course about?"
-                          value={formData.description}
+                        <input
+                          type="text"
+                          name="name"
+                          required
+                          placeholder="Introduction to Computer Science"
+                          value={formData.name}
                           onChange={handleChange}
-                          className="w-full pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-gray-700 resize-none placeholder-gray-400"
-                        ></textarea>
+                          className="w-full px-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-semibold text-gray-700"
+                        />
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* --- RIGHT COLUMN: Schedule --- */}
               <div className="lg:col-span-1 space-y-6">
-                {/* 1. Academic Year & Semester */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                   <h3 className="text-lg font-bold text-gray-800 mb-5 flex items-center gap-2">
                     <span className="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center">
                       <FiCalendar />
                     </span>
-                    Term & Year
+                    Term & Start Date
                   </h3>
-
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 block">
@@ -221,39 +174,29 @@ const CreateCourse = () => {
                             onClick={() =>
                               setFormData({ ...formData, semester: sem })
                             }
-                            className={`cursor-pointer rounded-lg py-2 text-center text-sm font-semibold transition-all border ${
-                              formData.semester === sem
-                                ? "bg-purple-600 text-white border-purple-600 shadow-md shadow-purple-200"
-                                : "bg-white text-gray-500 border-gray-200 hover:border-purple-300 hover:text-purple-600"
-                            }`}
+                            className={`cursor-pointer rounded-lg py-2 text-center text-sm font-semibold transition-all border ${formData.semester === sem ? "bg-purple-600 text-white border-purple-600" : "bg-white text-gray-500 border-gray-200"}`}
                           >
-                            {sem === "Summer" ? "Sum" : `Term ${sem}`}
+                            {sem}
                           </div>
                         ))}
                       </div>
                     </div>
-
+                    {/* ✅ เพิ่มส่วนเลือก Start Date เพื่อใช้ใน Loop 15 สัปดาห์ */}
                     <div>
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 block">
-                        Academic Year
+                        Start Date (First Class)
                       </label>
-                      <select
-                        name="academic_year"
-                        value={formData.academic_year}
+                      <input
+                        type="date"
+                        name="start_date"
+                        value={formData.start_date}
                         onChange={handleChange}
-                        className="w-full px-4 py-2.5 bg-gray-50 border-none rounded-xl font-semibold text-gray-700 focus:ring-2 focus:ring-purple-200 cursor-pointer"
-                      >
-                        {years.map((year) => (
-                          <option key={year} value={year}>
-                            {year}
-                          </option>
-                        ))}
-                      </select>
+                        className="w-full px-4 py-2.5 bg-gray-50 border-none rounded-xl font-semibold text-gray-700 focus:ring-2 focus:ring-purple-200"
+                      />
                     </div>
                   </div>
                 </div>
 
-                {/* 2. Schedule (Time & Day) */}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                   <h3 className="text-lg font-bold text-gray-800 mb-5 flex items-center gap-2">
                     <span className="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center">
@@ -261,8 +204,6 @@ const CreateCourse = () => {
                     </span>
                     Schedule
                   </h3>
-
-                  {/* Day Selector (Buttons) */}
                   <div className="mb-6">
                     <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 block">
                       Class Day
@@ -273,42 +214,36 @@ const CreateCourse = () => {
                           type="button"
                           key={day.value}
                           onClick={() => handleDaySelect(day.value)}
-                          className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all transform hover:scale-110 ${
-                            formData.day_of_week === day.value
-                              ? "bg-orange-500 text-white shadow-lg shadow-orange-200 ring-2 ring-orange-100"
-                              : "bg-gray-100 text-gray-400 hover:bg-orange-100 hover:text-orange-500"
-                          }`}
+                          className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all ${formData.day_of_week === day.value ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-400"}`}
                         >
                           {day.label}
                         </button>
                       ))}
                     </div>
                   </div>
-
-                  {/* Time Inputs */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 block">
-                        Start
+                        Start Time
                       </label>
                       <input
                         type="time"
                         name="start_time"
                         value={formData.start_time}
                         onChange={handleChange}
-                        className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm font-bold text-gray-700 focus:bg-white focus:ring-2 focus:ring-orange-200 outline-none border border-transparent focus:border-orange-300"
+                        className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm font-bold text-gray-700 outline-none border border-transparent focus:border-orange-300"
                       />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 block">
-                        End
+                        End Time
                       </label>
                       <input
                         type="time"
                         name="end_time"
                         value={formData.end_time}
                         onChange={handleChange}
-                        className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm font-bold text-gray-700 focus:bg-white focus:ring-2 focus:ring-orange-200 outline-none border border-transparent focus:border-orange-300"
+                        className="w-full px-3 py-2 bg-gray-50 rounded-lg text-sm font-bold text-gray-700 outline-none border border-transparent focus:border-orange-300"
                       />
                     </div>
                   </div>
@@ -316,25 +251,24 @@ const CreateCourse = () => {
               </div>
             </div>
 
-            {/* Bottom Actions */}
             <div className="mt-8 flex justify-end gap-4 pb-10">
               <button
                 type="button"
                 onClick={() => navigate("/teacher/dashboard")}
-                className="px-6 py-3 rounded-xl font-bold text-gray-500 hover:bg-white hover:text-gray-700 transition-colors"
+                className="px-6 py-3 rounded-xl font-bold text-gray-500 hover:text-gray-700 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="px-8 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:shadow-lg hover:shadow-blue-300 transform hover:-translate-y-1 transition-all flex items-center gap-2"
+                className="px-8 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:shadow-lg transform hover:-translate-y-1 transition-all flex items-center gap-2"
               >
                 {loading ? (
-                  "Saving..."
+                  "Creating Sessions..."
                 ) : (
                   <>
-                    <FiCheck size={20} /> Create Course
+                    <FiCheck size={20} /> Create Course & 15 Sessions
                   </>
                 )}
               </button>

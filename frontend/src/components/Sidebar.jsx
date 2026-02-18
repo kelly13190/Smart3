@@ -1,5 +1,5 @@
 // src/components/Sidebar.jsx
-import React from "react";
+import React, { useState, useEffect } from "react"; // ✅ เพิ่ม useState, useEffect
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   FiHome,
@@ -11,7 +11,9 @@ import {
   FiPieChart,
   FiServer,
   FiSettings,
-  FiShield
+  FiShield,
+  FiPlusSquare,
+  FiActivity, // ✅ เพิ่มไอคอนสำหรับ Live Session
 } from "react-icons/fi";
 
 const Sidebar = () => {
@@ -22,20 +24,62 @@ const Sidebar = () => {
   const userName = localStorage.getItem("user_name") || "Guest";
   const role = localStorage.getItem("role") || "student";
 
+  // ✅ 1. เพิ่ม State เพื่อเช็คว่ามี Live Session ค้างอยู่ไหม
+  const [activeSessionId, setActiveSessionId] = useState(null);
+
+  // ✅ 2. เพิ่ม useEffect เช็ค localStorage ทุกครั้งที่เปลี่ยนหน้า
+  useEffect(() => {
+    const checkSession = () => {
+      const storedSession = localStorage.getItem("active_session_id");
+      setActiveSessionId(storedSession); // อัปเดต State
+    };
+
+    // เช็คครั้งแรก
+    checkSession();
+
+    // ✅ เพิ่มตัวฟังเหตุการณ์: ถ้ามีการเซฟ storage (จากหน้า DeviceSetup) ให้ทำทันที
+    window.addEventListener("storage", checkSession);
+
+    return () => {
+      window.removeEventListener("storage", checkSession);
+    };
+  }, [location]);
+
   const handleLogout = () => {
-    localStorage.clear(); // ล้างทุกอย่าง
+    localStorage.clear();
     navigate("/");
   };
 
-  // ✅ กำหนด Menu Items ให้ตรงกับ App.jsx
+  // --- เมนูเดิมของคุณ (ไม่แตะต้อง) ---
   const getMenuItems = () => {
     if (role === "admin") {
       return [
-        { icon:<FiServer />, label: "Console", path: "/admin/dashboard" },
-        { icon:<FiShield />, label: "User Management", path: "/admin/user-management" }, //สร้างไฟล์นี้ทีหลัง
-        { icon:<FiSettings />, label: "System Settings", path: "/admin/system-settings" }, //สร้างไฟล์นี้ทีหลัง
-        { icon:<FiFileText />, label: "Student Attendance History", path: "/admin/student-attendance-history" },
-        { icon:<FiMonitor />, label: "Real Time Report", path: "/admin/realtime-report" },
+        { icon: <FiServer />, label: "Console", path: "/admin/dashboard" },
+        {
+          icon: <FiShield />,
+          label: "User Management",
+          path: "/admin/user-management",
+        },
+        {
+          icon: <FiSettings />,
+          label: "System Settings",
+          path: "/admin/system-settings",
+        },
+        {
+          icon: <FiFileText />,
+          label: "Student Attendance History",
+          path: "/admin/student-attendance-history",
+        },
+        {
+          icon: <FiMonitor />,
+          label: "Real Time Report",
+          path: "/admin/realtime-report",
+        },
+        {
+          icon: <FiPlusSquare />,
+          label: "Join Course",
+          path: "/student/enroll",
+        },
       ];
     }
 
@@ -62,7 +106,11 @@ const Sidebar = () => {
           label: "Attendance Report",
           path: "/teacher/attendance-report",
         },
-        { icon: <FiFileText />, label: "Reports", path: "/teacher/reports" }, // หน้าที่ยังไม่สร้าง
+        {
+          icon: <FiFileText />,
+          label: "Reports",
+          path: "/teacher/reports",
+        },
       ];
     } else {
       // Student
@@ -74,10 +122,15 @@ const Sidebar = () => {
           path: "/student/register-face",
         },
         {
+          icon: <FiPlusSquare />,
+          label: "Join Course",
+          path: "/student/enroll",
+        },
+        {
           icon: <FiPieChart />,
           label: "Attendance Report",
           path: "/student/stu-attendance",
-        }
+        },
       ];
     }
   };
@@ -85,7 +138,7 @@ const Sidebar = () => {
   const menuItems = getMenuItems();
 
   return (
-    <aside className="w-64 bg-white border-r border-gray-100 flex flex-col justify-between h-screen sticky top-0">
+    <aside className="w-64 bg-white border-r border-gray-100 flex flex-col justify-between h-screen sticky top-0 font-sans">
       <div>
         <div className="p-8">
           <h1 className="text-xl font-bold text-blue-600">
@@ -93,9 +146,32 @@ const Sidebar = () => {
           </h1>
         </div>
 
+        {/* ✅ 3. แทรกปุ่ม Live Session ตรงนี้ (จะแสดงเฉพาะตอนมี session ค้าง) */}
+        {activeSessionId && (
+          <div className="px-4 mb-4">
+            <div
+              onClick={() =>
+                navigate(`/teacher/session/${activeSessionId}/live`)
+              }
+              className="bg-red-50 border border-red-100 p-3 rounded-xl cursor-pointer hover:bg-red-100 transition-all flex items-center gap-3 group relative overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-red-200 opacity-0 group-hover:opacity-10 transition-opacity"></div>
+              <div className="relative z-10 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"></div>
+              <div className="relative z-10 flex-1">
+                <p className="text-xs font-bold text-red-500 uppercase tracking-wide">
+                  Live Session
+                </p>
+                <p className="text-[10px] text-red-400 font-medium">
+                  Click to return
+                </p>
+              </div>
+              <FiActivity className="relative z-10 ml-auto text-red-500 animate-pulse" />
+            </div>
+          </div>
+        )}
+
         <nav className="mt-4 px-4 space-y-2">
           {menuItems.map((item, index) => {
-            // เช็คว่าเมนูนี้ Active อยู่ไหม
             const isActive = location.pathname === item.path;
             return (
               <div
