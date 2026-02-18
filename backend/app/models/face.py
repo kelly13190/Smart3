@@ -1,8 +1,7 @@
-import pgvector
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import Vector  # ✅ Import Vector มาตรงๆ
 
 
 class FaceEmbedding(Base):
@@ -10,9 +9,9 @@ class FaceEmbedding(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    embedding_vector = Column(Vector(512), nullable=False)
+    image_path = Column(String, nullable=True)
+    model_name = Column(String, default="ArcFace")
 
-    embedding_vector = Column(pgvector.sqlalchemy.Vector(dim=512), nullable=False)  # เก็บ Vector หน้า
-    image_path = Column(String, nullable=True)  # เก็บ Path รูป
-    model_name = Column(String, default="Facenet512")
-
+    # Relationship
     user = relationship("User", back_populates="face_embeddings")

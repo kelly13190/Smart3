@@ -25,13 +25,16 @@ class User(Base):
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",
-    )
+    )   
 
     # 2. วิชาที่สอน (สำหรับ Teacher)
     courses_taught = relationship("Course", back_populates="teacher")
+
+    courses = relationship("Course", back_populates="teacher")
 
     # 3. การลงทะเบียนเรียน (สำหรับ Student)
     enrollments = relationship("Enrollment", back_populates="student")
 
     # 4. ประวัติการเข้าเรียน (Attendance)
     attendance_records = relationship("Attendance", back_populates="student")
+    attendances = relationship("Attendance", back_populates="student")
