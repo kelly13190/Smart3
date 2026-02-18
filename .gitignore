@@ -1,8 +1,13 @@
 # --- System & IDE ---
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
-Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # --- Environment Variables (ห้ามหลุดเด็ดขาด) ---
 .env
@@ -12,26 +17,47 @@ Thumbs.db
 
 # --- Backend (Python) ---
 backend/venv/
+backend/env/
 backend/__pycache__/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
-__pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
 
+# --- DeepFace & AI Models ---
+*.h5
+*.hdf5
+*.json
+*.weights
+*.pth
+*.pt
+.deepface/
+weights/
+representations_*.pkl
+ds_model_*.pkl
+
 # --- Upload ---
-backend/uploads/faces/
+backend/uploads/
+backend/static/images/
+*.jpg
+*.jpeg
+*.png
+temp/
 
 # --- Frontend (Node/React) ---
 frontend/node_modules/
+node_modules/
 frontend/dist/
+frontend/dist-ssr/
 frontend/build/
 frontend/.eslintcache
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.local
 
 # --- Database ---
 postgres_data/
