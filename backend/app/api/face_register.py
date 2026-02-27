@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from app.core.database import get_db
 from app.models.users import User
 
-# from app.core.security import get_current_user
+from app.core.security import get_current_user
 from app.models.users import User
 from app.models.face import FaceEmbedding
 from pydantic import BaseModel
@@ -18,10 +18,6 @@ from PIL import Image
 import os
 
 router = APIRouter()
-
-
-async def get_fake_user():
-    return User(id=1, email="test@example.com", full_name="Test Student")
 
 
 # --- Schema รับรูปภาพ Base64 ---
@@ -44,20 +40,18 @@ def base64_to_image(base64_string):
 async def register_face(
     req: FaceRegisterRequest,
     db: AsyncSession = Depends(get_db),
-    # ❌ current_user: User = Depends(get_current_user),  <-- เปลี่ยนบรรทัดนี้
-    current_user: User = Depends(get_fake_user),  # <-- เป็นบรรทัดนี้แทน
+    current_user: User = Depends(get_current_user),
 ):
     try:
         # 1. แปลงภาพ
         img_array = base64_to_image(req.image)
 
-        # 2. 🔥 ใช้ DeepFace สร้าง Embedding (ArcFace + MediaPipe)
-        # นี่คือหัวใจสำคัญ! มันจะแปลงหน้าเป็นตัวเลข 512 ตัว
+        # 2. ใช้ DeepFace สร้าง Embedding (ArcFace + OpenCV)
         embedding_objs = DeepFace.represent(
             img_path=img_array,
-            model_name="ArcFace",  # ใช้ ArcFace ตาม Project Spec
-            detector_backend="mediapipe",  # ใช้ BlazeFace (MediaPipe) ตาม Project Spec
-            enforce_detection=True,  # ต้องเจอหน้าเท่านั้นถึงจะผ่าน
+            model_name="ArcFace",
+            detector_backend="opencv", 
+            enforce_detection=True,  
             align=True,
         )
 

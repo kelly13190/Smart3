@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
 
 # Import Routers
-from app.api import users, auth, face, courses, face_register, attendance_check
+from app.api import users, auth, courses, face_register, attendance_check
 
 # Import Models (เพื่อให้ create_all เห็นตารางและสร้างใน DB)
 from app.models.users import User
@@ -30,7 +30,6 @@ app.add_middleware(
 # ลงทะเบียน Router
 app.include_router(users.router, tags=["Users"])
 app.include_router(auth.router, tags=["Authentication"])
-app.include_router(face.router, tags=["Face Recognition"])
 app.include_router(courses.router, tags=["Courses"])
 app.include_router(face_register.router, tags=["student"])
 app.include_router(attendance_check.router, tags=["Attendance"])

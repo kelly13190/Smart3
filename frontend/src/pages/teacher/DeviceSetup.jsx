@@ -10,6 +10,8 @@ import {
   FiPlay,
   FiChevronDown,
   FiClock,
+  FiCheckCircle,
+  FiAlertCircle,
 } from "react-icons/fi";
 
 const DeviceSetup = () => {
@@ -17,7 +19,8 @@ const DeviceSetup = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [courses, setCourses] = useState([]);
-  const [sessions, setSessions] = useState([]);
+  const [sessions, setSessions] = useState([]); // ALL sessions รวม completed
+  const [allSessions, setAllSessions] = useState([]); // ใช้ lookup week number
   const [devices, setDevices] = useState([]);
   const [rooms] = useState(["M22", "CB2301", "LX1102", "SIT-Train-1"]);
 
@@ -26,14 +29,10 @@ const DeviceSetup = () => {
   const [selectedRoom, setSelectedRoom] = useState("M22");
   const [selectedDevice, setSelectedDevice] = useState("");
 
-  // --- Helper: แปลงวันที่จาก String (YYYY-MM-DD) เป็นไทย ---
   const formatDate = (dateString) => {
     if (!dateString) return "ไม่ระบุวันที่";
-    // แก้ปัญหาเรื่อง Timezone โดยการระบุเวลาเที่ยงวัน
     const date = new Date(dateString + "T12:00:00");
-
     if (isNaN(date.getTime())) return "Invalid Date";
-
     return date.toLocaleDateString("th-TH", {
       day: "numeric",
       month: "short",
@@ -41,13 +40,28 @@ const DeviceSetup = () => {
     });
   };
 
-  // --- 1. Clock ---
+  const getSessionStatus = (session) => {
+    if (session.status === "completed") return "completed";
+    if (session.status === "active" || session.is_active) return "active";
+    return "pending";
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case "completed":
+        return { label: "✓ เสร็จแล้ว", color: "bg-gray-100 text-gray-500" };
+      case "active":
+        return { label: "● กำลังเปิด", color: "bg-green-100 text-green-600" };
+      default:
+        return { label: "รอเริ่ม", color: "bg-blue-50 text-blue-500" };
+    }
+  };
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // --- 2. Fetch Courses (ใช้ API เดิมของคุณที่มีอยู่แล้ว) ---
   useEffect(() => {
     const fetchCourses = async () => {
       try {
@@ -60,7 +74,6 @@ const DeviceSetup = () => {
     fetchCourses();
   }, []);
 
-  // --- 3. Get Cameras ---
   useEffect(() => {
     const getDevices = async () => {
       try {
@@ -76,83 +89,125 @@ const DeviceSetup = () => {
     getDevices();
   }, []);
 
-  // --- Logic การเลือก ---
+  // ── เลือกวิชา ───────────────────────────────────────────────────────────────
   const handleCourseChange = async (courseId) => {
     const course = courses.find((c) => c.id === parseInt(courseId));
     if (!course) return;
 
     setSelectedCourse(course);
     setSelectedSession(null);
+    setSessions([]);
+    setAllSessions([]);
 
     try {
       const res = await api.get(`/courses/${course.id}/sessions`);
-      // เรียงตาม Week Number หรือ ID
-      const sortedSessions = res.data.sort((a, b) => a.id - b.id);
-      setSessions(sortedSessions);
+      const sorted = res.data.sort((a, b) => a.id - b.id);
+      setAllSessions(sorted);
 
-      // Auto-Select: หาวันนี้ โดยเทียบ String "YYYY-MM-DD" ตรงๆ
-      const todayStr = new Date().toISOString().split("T")[0]; // ได้ค่า "2024-02-16"
+      // ✅ แสดง ALL sessions ใน dropdown รวม completed เพื่อดูย้อนหลังได้
+      setSessions(sorted);
 
-      const todaySession = sortedSessions.find((s) => s.date === todayStr);
+      const todayStr = new Date().toISOString().split("T")[0];
 
-      // ถ้าเจอวันนี้เลือกเลย / ถ้าไม่เจอให้หาอันที่ใกล้วันนี้ที่สุดที่ยังไม่ผ่านไป
-      if (todaySession) {
-        setSelectedSession(todaySession);
-      } else {
-        const upcoming = sortedSessions.find((s) => s.date >= todayStr);
-        if (upcoming) setSelectedSession(upcoming);
-        else if (sortedSessions.length > 0)
-          setSelectedSession(sortedSessions[0]);
-      }
+      // Auto-select: active → pending วันนี้ → pending upcoming → pending แรก
+      // ❌ ไม่ auto-select completed → ป้องกัน error "Session is not active"
+      const activeSession = sorted.find(
+        (s) => s.status === "active" || s.is_active,
+      );
+      const todayPending = sorted.find(
+        (s) => s.date === todayStr && s.status === "pending",
+      );
+      const upcomingPending = sorted.find(
+        (s) => s.date >= todayStr && s.status === "pending",
+      );
+      const firstPending = sorted.find((s) => s.status === "pending");
+
+      if (activeSession) setSelectedSession(activeSession);
+      else if (todayPending) setSelectedSession(todayPending);
+      else if (upcomingPending) setSelectedSession(upcomingPending);
+      else if (firstPending) setSelectedSession(firstPending);
+      // ถ้าทุกคาบ completed หมดแล้ว → ไม่ auto-select ให้ user เลือกดูย้อนหลังเอง
     } catch (err) {
       console.error("Fetch Sessions Error:", err);
       setSessions([]);
+      setAllSessions([]);
     }
   };
 
-  const handleStartClass = async () => {
-    if (!selectedSession || !selectedCourse) {
-      return alert("กรุณาเลือกวิชาและคาบเรียนก่อนครับ");
+  // ── กดปุ่ม Start / ดูย้อนหลัง ──────────────────────────────────────────────
+  const handleStart = async () => {
+    if (!selectedSession) {
+      alert("กรุณาเลือกคาบเรียนก่อนครับ");
+      return;
+    }
+
+    // ✅ ตรวจ status จาก object จริง ก่อนทำอะไรทุกครั้ง
+    const currentStatus = getSessionStatus(selectedSession);
+
+    // completed → ไปหน้าสรุปแทน ไม่ start ใหม่
+    if (currentStatus === "completed") {
+      navigate(`/teacher/session/${selectedSession.id}/summary`);
+      return;
     }
 
     try {
-      setLoading(true);
+      const token = localStorage.getItem("token");
 
-      // 1. ยิง API บอก Backend ว่า "เริ่มสอนแล้วนะ"
-      await api.post(`/sessions/${selectedSession.id}/start`);
+      await api.post(
+        `/sessions/${selectedSession.id}/start`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
 
-      // 2. บันทึก State ลง LocalStorage ให้ Sidebar ทำงาน
       localStorage.setItem("active_session_id", selectedSession.id);
-      window.dispatchEvent(new Event("storage")); // กระตุ้น Sidebar
+      window.dispatchEvent(new Event("storage"));
 
-      // 3. ไปหน้า Live พร้อมส่งข้อมูล (Course Name, Session ID) ไปด้วย
       navigate(`/teacher/session/${selectedSession.id}/live`, {
-        state: {
-          courseName: selectedCourse.name, // ชื่อวิชา
-          courseCode: selectedCourse.course_code, // รหัสวิชา
-          sessionDate: selectedSession.date, // วันที่สอน
-          deviceId: config.device, // กล้องที่เลือก
-        },
+        state: { deviceId: selectedDevice, room: selectedRoom },
       });
-    } catch (err) {
-      console.error("Start Error:", err);
-      // ถ้า Error เพราะมี Session ค้างอยู่ ให้แจ้งเตือน
-      alert(err.response?.data?.detail || "เกิดข้อผิดพลาดในการเริ่มคลาส");
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error("Error starting session:", error);
+      const httpStatus = error.response?.status;
+      const detail = error.response?.data?.detail || "";
+
+      if (httpStatus === 400) {
+        // Session active อยู่แล้ว → เข้าห้องสดได้เลย
+        localStorage.setItem("active_session_id", selectedSession.id);
+        window.dispatchEvent(new Event("storage"));
+        navigate(`/teacher/session/${selectedSession.id}/live`, {
+          state: { deviceId: selectedDevice, room: selectedRoom },
+        });
+      } else if (detail.toLowerCase().includes("completed")) {
+        // Backend บอกว่า completed → ไปหน้าสรุป
+        navigate(`/teacher/session/${selectedSession.id}/summary`);
+      } else {
+        alert(`เกิดข้อผิดพลาด: ${detail || "ไม่สามารถเริ่มได้"}`);
+      }
     }
+  };
+
+  const selectedStatus = selectedSession
+    ? getSessionStatus(selectedSession)
+    : null;
+  const isCompleted = selectedStatus === "completed";
+  const isActive = selectedStatus === "active";
+
+  const getWeekNumber = (session) => {
+    const idx = allSessions.findIndex((s) => s.id === session.id);
+    return idx >= 0 ? idx + 1 : "?";
   };
 
   return (
     <div className="flex h-screen bg-[#F3F4F6] font-sans">
       <Sidebar />
       <main className="flex-1 overflow-y-auto">
+        {/* ── Header ── */}
         <div className="bg-gradient-to-r from-blue-700 to-indigo-600 h-64 relative px-10 pt-10 pb-24">
           <div className="relative z-10 flex justify-between items-start text-white">
             <div>
               <h1 className="text-3xl font-bold mb-2">Device Setup</h1>
               <p className="opacity-80">
-                Setting device and Select Room&Course{" "}
+                Setting device and Select Room & Course
               </p>
             </div>
             <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl flex items-center gap-4">
@@ -164,8 +219,9 @@ const DeviceSetup = () => {
           </div>
         </div>
 
+        {/* ── Cards ── */}
         <div className="px-10 -mt-20 relative z-20">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             {/* 1. Course */}
             <div className="relative group h-full">
               <SelectionCard
@@ -197,7 +253,7 @@ const DeviceSetup = () => {
               </select>
             </div>
 
-            {/* 2. Session (แก้ให้ใช้ s.date) */}
+            {/* 2. Session — แสดงทุก session รวม completed */}
             <div
               className={`relative group h-full ${!selectedCourse ? "opacity-50 grayscale cursor-not-allowed" : ""}`}
             >
@@ -205,10 +261,9 @@ const DeviceSetup = () => {
                 label="Session / Week"
                 value={
                   selectedSession
-                    ? `Week ${sessions.indexOf(selectedSession) + 1}`
+                    ? `Week ${getWeekNumber(selectedSession)}`
                     : "Select Week"
                 }
-                // ✅ ใช้ s.date ในการแสดงผล
                 subValue={
                   selectedSession
                     ? formatDate(selectedSession.date)
@@ -218,6 +273,7 @@ const DeviceSetup = () => {
                 color="text-indigo-600"
                 bgColor="bg-indigo-50"
                 borderColor="hover:border-indigo-400"
+                badge={selectedStatus ? getStatusBadge(selectedStatus) : null}
               />
               <select
                 className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
@@ -226,19 +282,25 @@ const DeviceSetup = () => {
                   const s = sessions.find(
                     (x) => x.id === parseInt(e.target.value),
                   );
-                  setSelectedSession(s);
+                  if (s) setSelectedSession(s);
                 }}
                 value={selectedSession?.id || ""}
               >
                 <option value="" disabled>
                   Select Week
                 </option>
-                {sessions.map((s, index) => (
-                  <option key={s.id} value={s.id}>
-                    {/* ✅ ใช้ s.date ใน Dropdown */}
-                    Week {index + 1} : {formatDate(s.date)}
-                  </option>
-                ))}
+                {sessions.map((s) => {
+                  const st = getSessionStatus(s);
+                  const wk = getWeekNumber(s);
+                  const tag =
+                    st === "active" ? " 🟢" : st === "completed" ? " ✓" : "";
+                  return (
+                    <option key={s.id} value={s.id}>
+                      Week {wk} : {formatDate(s.date)}
+                      {tag}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -294,25 +356,61 @@ const DeviceSetup = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              if (selectedSession) {
-                localStorage.setItem("active_session_id", selectedSession.id);
-
-                window.dispatchEvent(new Event("storage"));
-
-                navigate(`/teacher/session/${selectedSession.id}/live`, {
-                  state: { deviceId: selectedDevice, room: selectedRoom },
-                });
-              }
-            }}
-            disabled={!selectedSession}
-            className="w-full bg-white text-blue-700 p-8 rounded-[40px] font-black text-2xl shadow-xl shadow-blue-900/10 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-4 disabled:grayscale disabled:opacity-50"
-          >
-            <div className="w-12 h-12 bg-blue-700 text-white rounded-full flex items-center justify-center shadow-lg shadow-blue-200">
-              <FiPlay fill="currentColor" />
+          {/* ── Status Banners ── */}
+          {isCompleted && (
+            <div className="mb-4 flex items-center gap-3 bg-amber-50 border border-amber-200 text-amber-700 px-5 py-4 rounded-2xl">
+              <FiAlertCircle size={20} className="flex-shrink-0" />
+              <div>
+                <p className="font-bold text-sm">คาบนี้ปิดแล้ว</p>
+                <p className="text-xs opacity-80">
+                  กดปุ่มด้านล่างเพื่อดูผลเช็คชื่อย้อนหลัง
+                </p>
+              </div>
             </div>
-            START ATTENDANCE SYSTEM
+          )}
+
+          {isActive && (
+            <div className="mb-4 flex items-center gap-3 bg-green-50 border border-green-200 text-green-700 px-5 py-4 rounded-2xl">
+              <FiCheckCircle size={20} className="flex-shrink-0" />
+              <div>
+                <p className="font-bold text-sm">คาบนี้กำลังเปิดอยู่</p>
+                <p className="text-xs opacity-80">
+                  กดปุ่มด้านล่างเพื่อเข้าห้องสดต่อ
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Action Button ── */}
+          <button
+            onClick={handleStart}
+            disabled={!selectedSession}
+            className={`w-full p-8 rounded-[40px] font-black text-2xl shadow-xl transition-all flex items-center justify-center gap-4 disabled:grayscale disabled:opacity-50 mb-8
+              ${
+                isCompleted
+                  ? "bg-gray-700 text-white hover:bg-gray-800 shadow-gray-900/10"
+                  : "bg-white text-blue-700 hover:scale-[1.02] active:scale-95 shadow-blue-900/10"
+              }`}
+          >
+            <div
+              className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg
+                ${
+                  isCompleted
+                    ? "bg-white text-gray-700 shadow-gray-200"
+                    : "bg-blue-700 text-white shadow-blue-200"
+                }`}
+            >
+              {isCompleted ? (
+                <FiCheckCircle fill="currentColor" />
+              ) : (
+                <FiPlay fill="currentColor" />
+              )}
+            </div>
+            {isCompleted
+              ? "ดูผลเช็คชื่อย้อนหลัง"
+              : isActive
+                ? "เข้าห้องสดต่อ"
+                : "START ATTENDANCE SYSTEM"}
           </button>
         </div>
       </main>
@@ -320,6 +418,7 @@ const DeviceSetup = () => {
   );
 };
 
+// ── SelectionCard component ────────────────────────────────────────────────────
 const SelectionCard = ({
   label,
   value,
@@ -328,6 +427,7 @@ const SelectionCard = ({
   color,
   bgColor,
   borderColor,
+  badge,
 }) => (
   <div
     className={`group relative p-6 rounded-3xl border border-gray-100 bg-white transition-all ${borderColor} border-l-4 border-l-transparent hover:border-l-current shadow-sm h-full flex flex-col justify-center`}
@@ -339,10 +439,19 @@ const SelectionCard = ({
         >
           {icon}
         </div>
-        <div className="flex flex-col min-w-0">
-          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">
-            {label}
-          </span>
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+              {label}
+            </span>
+            {badge && (
+              <span
+                className={`text-xs font-bold px-2 py-0.5 rounded-full ${badge.color}`}
+              >
+                {badge.label}
+              </span>
+            )}
+          </div>
           <span className="font-bold text-gray-800 text-lg truncate">
             {value}
           </span>

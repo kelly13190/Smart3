@@ -65,46 +65,84 @@ const FaceRegister = () => {
     loadModels();
   }, []);
 
-  // 2. Loop ตรวจจับใบหน้า
-  const handleVideoOnPlay = () => {
-    setInterval(async () => {
-      if (
-        webcamRef.current &&
-        webcamRef.current.video.readyState === 4 &&
-        canvasRef.current
-      ) {
-        const video = webcamRef.current.video;
-        const displaySize = {
-          width: video.videoWidth,
-          height: video.videoHeight,
-        };
+  // 2. Loop ตรวจจับใบหน้า (ใช้ useEffect เสถียรกว่า และแก้บั๊ก .detection แล้ว)
+  useEffect(() => {
+    let interval;
+    const runDetection = async () => {
+      // เช็คว่ากล้องและ Model พร้อมไหม
+      if (!isModelLoaded || !webcamRef.current || !webcamRef.current.video)
+        return;
 
-        // Match canvas size กับ video
-        faceapi.matchDimensions(canvasRef.current, displaySize);
+      const video = webcamRef.current.video;
+      if (video.readyState !== 4) return;
 
-        // Detect
+      const displaySize = {
+        width: video.videoWidth,
+        height: video.videoHeight,
+      };
+      faceapi.matchDimensions(canvasRef.current, displaySize);
+
+      try {
         const detections = await faceapi.detectAllFaces(
           video,
-          new faceapi.TinyFaceDetectorOptions({
-            inputSize: 224,
-            scoreThreshold: 0.5,
-          }),
+          new faceapi.TinyFaceDetectorOptions(),
         );
 
-        // Resize & Draw
         const resizedDetections = faceapi.resizeResults(
           detections,
           displaySize,
         );
         const ctx = canvasRef.current.getContext("2d");
-        ctx.clearRect(0, 0, displaySize.width, displaySize.height); // ล้างเฟรมเก่า
-        faceapi.draw.drawDetections(canvasRef.current, resizedDetections);
+        ctx.clearRect(0, 0, displaySize.width, displaySize.height);
 
-        // Update State (เจอหน้าเดียว = OK)
-        setFaceDetected(detections.length === 1);
+        if (resizedDetections.length > 0) {
+          const face = resizedDetections[0];
+
+          // ✅ แก้บั๊กแล้ว! เรียกใช้ .box และ .score ได้เลยโดยตรง
+          const { width, height, x, y } = face.box;
+          const score = face.score;
+
+          const isClear = score > 0.7;
+          const isLargeEnough = width > 100 && height > 100;
+
+          const videoCenter = displaySize.width / 2;
+          const faceCenter = x + width / 2;
+          const isCentered = Math.abs(videoCenter - faceCenter) < 150;
+
+          if (isClear && isLargeEnough && isCentered) {
+            setFaceDetected(true);
+            const drawBox = new faceapi.draw.DrawBox(face.box, {
+              boxColor: "green",
+              label: "Perfect!",
+            });
+            drawBox.draw(canvasRef.current);
+          } else {
+            setFaceDetected(false);
+            let msg = "Move Closer";
+            if (!isCentered) msg = "Center your face";
+            if (!isClear) msg = "Not clear";
+
+            const drawBox = new faceapi.draw.DrawBox(face.box, {
+              boxColor: "red",
+              label: msg,
+            });
+            drawBox.draw(canvasRef.current);
+          }
+        } else {
+          setFaceDetected(false);
+        }
+      } catch (error) {
+        console.error("Detection Error:", error);
       }
-    }, 100); // เช็คทุก 100ms
-  };
+    };
+
+    // ให้เริ่มรันก็ต่อเมื่อ Model โหลดเสร็จแล้วเท่านั้น
+    if (isModelLoaded) {
+      interval = setInterval(runDetection, 500);
+    }
+
+    return () => clearInterval(interval);
+  }, [isModelLoaded]);
 
   // ... (captureFrame และ uploadImages ใช้ Logic เดิมของคุณ แต่ผมตัดมาให้กระชับ) ...
   const captureFrame = useCallback(() => {
@@ -138,14 +176,27 @@ const FaceRegister = () => {
       // ใช้รูปหน้าตรง (index 0) หรือรูปล่าสุด
       const bestImage = imagesRef.current[0] || lastImage;
 
-      // ส่ง JSON ตาม Format ที่ Backend ต้องการ
-      await axios.post("http://localhost:8000/student/register-face", {
-        image: bestImage,
-      });
+      // 🔑 1. ดึง Token ออกมาจาก LocalStorage
+      const token = localStorage.getItem("token");
+
+      // 🔑 2. แนบ Header ไปพร้อมกับ Request
+      await axios.post(
+        "http://localhost:8000/student/register-face",
+        {
+          image: bestImage,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // ขาดบรรทัดนี้ไม่ได้เลยครับ!
+          },
+        },
+      );
+
       setIsSuccess(true);
+      alert("ลงทะเบียนใบหน้าสำเร็จ!"); // เพิ่ม alert ให้รู้ว่าเสร็จแล้ว
     } catch (error) {
       console.error(error);
-      alert("Registration Failed");
+      alert("Registration Failed: " + (error.response?.data?.detail || ""));
     } finally {
       setIsUploading(false);
     }
@@ -173,8 +224,7 @@ const FaceRegister = () => {
                 ref={webcamRef}
                 audio={false}
                 screenshotFormat="image/jpeg"
-                className="w-full h-full object-cover" // กระจกเงา
-                onLoadedMetadata={handleVideoOnPlay}
+                className="w-full h-full object-cover"
               />
 
               {/* 2. Canvas Overlay (วาดกรอบหน้า) */}

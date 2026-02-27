@@ -33,6 +33,7 @@ class ClassSession(Base):
     end_time = Column(Time)
     is_active = Column(Boolean, default=False)
     session_code = Column(String, nullable=True)
+    status = Column(String, default="pending") # มี 3 สถานะ: pending, active, completed
 
     # Relationship
     course = relationship("Course", back_populates="sessions")

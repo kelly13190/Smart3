@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 import Sidebar from "../../components/Sidebar";
 import {
   FiSearch,
@@ -12,32 +13,129 @@ import {
   FiCheckCircle,
   FiClock,
   FiXCircle,
-  FiChevronDown
+  FiChevronDown,
 } from "react-icons/fi";
 
 const AttendanceReport = () => {
-  // Mock Data
-  const [records] = useState([
-    { id: 1, name: "Jane Cooper", studentId: "65070282", time: "08:55", email: "jane@example.com", point: 1, status: "Present" },
-    { id: 2, name: "Floyd Miles", studentId: "65070283", time: "09:10", email: "floyd@example.com", point: 0.5, status: "Late" },
-    { id: 3, name: "Ronald Richards", studentId: "65070284", time: "09:15", email: "ronald@example.com", point: 0.5, status: "Late" },
-    { id: 4, name: "Marvin McKinney", studentId: "65070285", time: "08:50", email: "marvin@example.com", point: 1, status: "Present" },
-    { id: 5, name: "Jerome Bell", studentId: "65070286", time: "-", email: "jerome@example.com", point: 0, status: "Absent" },
-    { id: 6, name: "Kathryn Murphy", studentId: "65070287", time: "08:58", email: "kathryn@example.com", point: 1, status: "Present" },
-    { id: 7, name: "Jacob Jones", studentId: "65070288", time: "09:00", email: "jacob@example.com", point: 1, status: "Present" },
-    { id: 8, name: "Kristin Watson", studentId: "65070289", time: "09:20", email: "kristin@example.com", point: 0.5, status: "Late" },
-  ]);
+  const [loading, setLoading] = useState(true);
 
-  // Helper สี Badge
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case "Present": return "bg-emerald-100 text-emerald-600 border-emerald-200";
-      case "Late": return "bg-orange-100 text-orange-600 border-orange-200";
-      case "Absent": return "bg-rose-100 text-rose-600 border-rose-200";
-      default: return "bg-gray-100 text-gray-600 border-gray-200";
+  // --- 1. State ทั้งหมด ---
+  const [courses, setCourses] = useState([]);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  const [sessions, setSessions] = useState([]);
+  const [selectedSession, setSelectedSession] = useState(null);
+
+  const [records, setRecords] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState("id");
+
+  // --- 2. Step 1: โหลดรายชื่อวิชาทั้งหมด ---
+  useEffect(() => {
+    const fetchCourses = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(
+          "http://localhost:8000/courses/my-courses",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        setCourses(res.data);
+        if (res.data.length > 0) setSelectedCourse(res.data[0]);
+      } catch (err) {
+        console.error("Error fetching courses", err);
+      }
+    };
+    fetchCourses();
+  }, []);
+
+  // --- 3. Step 2: โหลดคาบเรียน (Sessions 1-15) เมื่อเปลี่ยนวิชา ---
+  useEffect(() => {
+    if (!selectedCourse) return;
+    const fetchSessions = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(
+          `http://localhost:8000/courses/${selectedCourse.id}/sessions`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        setSessions(res.data);
+        if (res.data.length > 0) setSelectedSession(res.data[0]);
+      } catch (err) {
+        console.error("Error fetching sessions", err);
+      }
+    };
+    fetchSessions();
+  }, [selectedCourse]);
+
+  // --- 4. Step 3: โหลดรายชื่อนักเรียน (Report) เมื่อเปลี่ยนคาบเรียน ---
+  useEffect(() => {
+    if (!selectedSession) {
+      setRecords([]);
+      setLoading(false);
+      return;
     }
-  };
+    const fetchReport = async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem("token");
+        const res = await axios.get(
+          `http://localhost:8000/attendance/report/${selectedSession.id}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        setRecords(res.data);
+      } catch (error) {
+        console.error("Error fetching report:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchReport();
+  }, [selectedSession]);
 
+  // --- 5. Logic การค้นหาและเรียงลำดับ ---
+  const filteredAndSortedRecords = records
+    .filter((record) => {
+      const matchSearch =
+        (record.name &&
+          record.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (record.studentId &&
+          record.studentId.toLowerCase().includes(searchTerm.toLowerCase()));
+      return matchSearch;
+    })
+    .sort((a, b) => {
+      if (sortBy === "name") return (a.name || "").localeCompare(b.name || "");
+      if (sortBy === "status")
+        return (a.status || "").localeCompare(b.status || "");
+      return (a.studentId || "").localeCompare(b.studentId || "");
+    });
+
+  // --- 6. ฟังก์ชัน Export CSV ---
+  const exportToCSV = () => {
+    if (filteredAndSortedRecords.length === 0)
+      return alert("No data to export");
+    let csvContent = "Student ID,Name,Time,Status,Point\n";
+    filteredAndSortedRecords.forEach((row) => {
+      csvContent += `${row.studentId},${row.name},${row.time},${row.status},${row.point}\n`;
+    });
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `Attendance_Report_${new Date().toISOString().split("T")[0]}.csv`,
+    );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   return (
     <div className="flex h-screen bg-[#F3F4F6] font-sans">
       <Sidebar />
@@ -47,11 +145,14 @@ const AttendanceReport = () => {
         <div className="bg-gradient-to-r from-blue-700 to-indigo-600 h-64 relative px-10 pt-10 pb-24">
           <div className="relative z-10">
             <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                <FiFileText className="bg-white/20 p-1.5 rounded-lg backdrop-blur-sm" size={36} />
-                Attendance Report
+              <FiFileText
+                className="bg-white/20 p-1.5 rounded-lg backdrop-blur-sm"
+                size={36}
+              />
+              Attendance Report
             </h1>
             <p className="text-blue-100 opacity-90 pl-1">
-                View and export detailed student attendance records.
+              View and export detailed student attendance records.
             </p>
           </div>
           {/* Decorative Circles */}
@@ -62,56 +163,106 @@ const AttendanceReport = () => {
         {/* Content Container */}
         <div className="px-10 -mt-20 pb-10 relative z-20">
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8 min-h-[600px] flex flex-col">
-            
-            {/* --- Toolbar Layout ใหม่ --- */}
-            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-6 border-b border-gray-100 pb-6">
-                
-                {/* 🟢 ฝั่งซ้าย: เลือกวิชา (Primary Context) */}
-                <div className="flex flex-col gap-2 w-full xl:w-auto">
-                    <label className="text-xs font-bold text-gray-400 uppercase tracking-wider ml-1">Select Class</label>
-                    <div className="relative">
-                        {/* Dropdown แบบเน้นให้ดูเหมือนหัวข้อ */}
-                        <select className="appearance-none bg-blue-50 hover:bg-blue-100 text-blue-900 text-lg font-bold pl-4 pr-12 py-3 rounded-xl border border-blue-100 focus:outline-none focus:ring-4 focus:ring-blue-500/20 cursor-pointer transition-all w-full xl:min-w-[300px]">
-                            <option>Smart Attendance AI</option>
-                            <option>Software Engineering</option>
-                            <option>Database Systems</option>
-                        </select>
-                        <FiChevronDown className="absolute right-4 top-4 text-blue-600 pointer-events-none" size={20}/>
-                    </div>
-                    {/* Time Info */}
-                    <p className="text-gray-500 text-sm flex items-center gap-2 ml-1">
-                        <FiClock size={14}/> Monday 09:00 - 12:00 (Morning Session)
-                    </p>
-                </div>
+            {/* --- Toolbar: แถวเดียว --- */}
+            <div className="flex items-center gap-3 mb-3 pb-6 border-b border-gray-100 flex-wrap">
 
-                {/* 🔵 ฝั่งขวา: เครื่องมือ (Search / Sort / Export) */}
-                <div className="flex flex-wrap items-end gap-3 w-full xl:w-auto">
-                    
-                    {/* Search (ขยายเต็มที่) */}
-                    <div className="relative group flex-grow">
-                        <FiSearch className="absolute left-3 top-3.5 text-gray-400 group-focus-within:text-blue-500" />
-                        <input 
-                            type="text" 
-                            placeholder="Search student..." 
-                            className="w-full xl:w-64 pl-10 pr-4 py-3 bg-gray-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm font-medium"
-                        />
-                    </div>
-                    
-                    {/* Sort */}
-                    <div className="relative">
-                        <select className="appearance-none h-[46px] bg-gray-50 hover:bg-gray-100 text-gray-600 pl-4 pr-10 rounded-xl border border-transparent focus:outline-none focus:border-blue-500 text-sm font-medium cursor-pointer transition-colors">
-                            <option>Sort by: ID</option>
-                            <option>Sort by: Name</option>
-                            <option>Sort by: Status</option>
-                        </select>
-                        <FiFilter className="absolute right-3 top-3.5 text-gray-400 pointer-events-none" size={16}/>
-                    </div>
+              {/* Select Class */}
+              <div className="relative">
+                <select
+                  className="appearance-none h-[42px] bg-gray-50 hover:bg-gray-100 text-gray-700 text-sm font-semibold pl-3 pr-9 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 cursor-pointer transition-all min-w-[200px]"
+                  value={selectedCourse?.id || ""}
+                  onChange={(e) => {
+                    const course = courses.find(
+                      (c) => c.id === parseInt(e.target.value),
+                    );
+                    setSelectedCourse(course);
+                  }}
+                >
+                  {courses.length === 0 && <option>Loading courses...</option>}
+                  {courses.map((course) => (
+                    <option key={course.id} value={course.id}>
+                      {course.course_code} — {course.name}
+                    </option>
+                  ))}
+                </select>
+                <FiChevronDown
+                  className="absolute right-3 top-3 text-gray-400 pointer-events-none"
+                  size={16}
+                />
+              </div>
 
-                    {/* Export */}
-                    <button className="h-[46px] flex items-center gap-2 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-200 transition-all font-bold text-sm">
-                        <FiDownload size={18}/> <span>Export CSV</span>
-                    </button>
+              {/* Select Week */}
+              <div className="relative">
+                <select
+                  className="appearance-none h-[42px] bg-gray-50 hover:bg-gray-100 text-gray-700 text-sm font-semibold pl-3 pr-9 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 cursor-pointer transition-all min-w-[160px]"
+                  value={selectedSession?.id || ""}
+                  onChange={(e) => {
+                    const session = sessions.find(
+                      (s) => s.id === parseInt(e.target.value),
+                    );
+                    setSelectedSession(session);
+                  }}
+                >
+                  {sessions.length === 0 && <option>No sessions...</option>}
+                  {sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      Week {session.week_number} ({session.date})
+                    </option>
+                  ))}
+                </select>
+                <FiChevronDown
+                  className="absolute right-3 top-3 text-gray-400 pointer-events-none"
+                  size={16}
+                />
+              </div>
+
+              {/* Time Info Chip */}
+              {selectedCourse && (
+                <div className="h-[42px] flex items-center gap-2 px-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500 font-medium whitespace-nowrap">
+                  <FiClock size={14} className="text-gray-400" />
+                  {selectedCourse.day_of_week} · {selectedCourse.start_time?.substring(0, 5)}–{selectedCourse.end_time?.substring(0, 5)}
                 </div>
+              )}
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Search */}
+              <div className="relative group">
+                <FiSearch className="absolute left-3 top-3 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+                <input
+                  type="text"
+                  placeholder="Search student..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-[42px] w-52 pl-9 pr-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10 transition-all text-sm font-medium outline-none"
+                />
+              </div>
+
+              {/* Sort */}
+              <div className="relative">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="appearance-none h-[42px] bg-gray-50 hover:bg-gray-100 text-gray-600 pl-3 pr-9 rounded-xl border border-gray-200 focus:outline-none focus:border-blue-400 text-sm font-medium cursor-pointer transition-colors"
+                >
+                  <option value="id">Sort: ID</option>
+                  <option value="name">Sort: Name</option>
+                  <option value="status">Sort: Status</option>
+                </select>
+                <FiFilter
+                  className="absolute right-3 top-3 text-gray-400 pointer-events-none"
+                  size={14}
+                />
+              </div>
+
+              {/* Export */}
+              <button
+                onClick={exportToCSV}
+                className="h-[42px] flex items-center gap-2 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md shadow-blue-200 transition-all font-bold text-sm"
+              >
+                <FiDownload size={16} /> Export CSV
+              </button>
             </div>
 
             {/* Table Section (เหมือนเดิม) */}
@@ -130,34 +281,57 @@ const AttendanceReport = () => {
                   </tr>
                 </thead>
                 <tbody className="text-sm">
-                  {records.map((item, index) => (
-                    <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/80 transition h-16 group">
-                      <td className="pl-4 text-gray-400 font-medium">{index + 1}</td>
+                  {filteredAndSortedRecords.map((log) => (
+                    <tr
+                      key={log.id}
+                      className="border-b border-gray-50 hover:bg-gray-50/80 transition h-16 group"
+                    >
+                      <td className="pl-4 text-gray-400 font-medium">
+                        {index + 1}
+                      </td>
                       <td>
                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
-                                {item.name.charAt(0)}
-                            </div>
-                            <span className="font-bold text-gray-700">{item.name}</span>
+                          <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">
+                            {item.name.charAt(0)}
+                          </div>
+                          <span className="font-bold text-gray-700">
+                            {item.name}
+                          </span>
                         </div>
                       </td>
-                      <td className="text-gray-500 font-mono">{item.studentId}</td>
+                      <td className="text-gray-500 font-mono">
+                        {item.studentId}
+                      </td>
                       <td className="text-center font-medium text-gray-700">
-                        {item.time === "-" ? <span className="text-gray-300">-</span> : item.time}
+                        {item.time === "-" ? (
+                          <span className="text-gray-300">-</span>
+                        ) : (
+                          item.time
+                        )}
                       </td>
                       <td className="text-gray-500">{item.email}</td>
-                      <td className="text-center font-bold text-gray-700">{item.point}</td>
+                      <td className="text-center font-bold text-gray-700">
+                        {item.point}
+                      </td>
                       <td className="text-center">
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(item.status)}`}>
-                            {item.status === "Present" && <FiCheckCircle className="mr-1" />}
-                            {item.status === "Late" && <FiClock className="mr-1" />}
-                            {item.status === "Absent" && <FiXCircle className="mr-1" />}
-                            {item.status}
+                        <span
+                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadge(item.status)}`}
+                        >
+                          {item.status === "Present" && (
+                            <FiCheckCircle className="mr-1" />
+                          )}
+                          {item.status === "Late" && (
+                            <FiClock className="mr-1" />
+                          )}
+                          {item.status === "Absent" && (
+                            <FiXCircle className="mr-1" />
+                          )}
+                          {item.status}
                         </span>
                       </td>
                       <td className="text-center">
                         <button className="text-gray-400 hover:text-blue-600 p-2 rounded-lg hover:bg-blue-50 transition-colors">
-                            <FiEdit size={16} />
+                          <FiEdit size={16} />
                         </button>
                       </td>
                     </tr>
@@ -168,15 +342,24 @@ const AttendanceReport = () => {
 
             {/* Pagination (เหมือนเดิม) */}
             <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-100">
-               <span className="text-sm text-gray-400">Showing 1-8 of 45 students</span>
-               <div className="flex items-center gap-2">
-                 <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-400 disabled:opacity-50"><FiChevronLeft /></button>
-                 <div className="flex items-center justify-center w-9 h-9 bg-blue-600 text-white rounded-lg shadow-md shadow-blue-200 text-sm font-bold">1</div>
-                 <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">2</button>
-                 <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500"><FiChevronRight /></button>
-               </div>
+              <span className="text-sm text-gray-400">
+                Total {records.length} students in this class
+              </span>
+              <div className="flex items-center gap-2">
+                <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-400 disabled:opacity-50">
+                  <FiChevronLeft />
+                </button>
+                <div className="flex items-center justify-center w-9 h-9 bg-blue-600 text-white rounded-lg shadow-md shadow-blue-200 text-sm font-bold">
+                  1
+                </div>
+                <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
+                  2
+                </button>
+                <button className="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
+                  <FiChevronRight />
+                </button>
+              </div>
             </div>
-
           </div>
         </div>
       </main>
