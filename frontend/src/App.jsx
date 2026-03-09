@@ -24,6 +24,7 @@ import CourseSettings from "./pages/teacher/CourseSettings";
 import AttendanceReport from "./pages/teacher/AttendanceReport";
 import DeviceSetup from "./pages/teacher/DeviceSetup";
 import RealTimeAttendance from "./pages/teacher/RealTimeAttendance";
+import EnrolledStudents from "./pages/teacher/EnrolledStudents";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -145,6 +146,10 @@ function App() {
               <RealTimeAttendance />
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="/teacher/course/:courseId/students"
+          element={<EnrolledStudents />}
         />
         {/* 6. Zone ผู้ดูแลระบบ */}
         <Route

@@ -45,13 +45,6 @@ class CourseResponse(BaseModel):
         from_attributes = True
 
 
-class SessionCreate(BaseModel):
-    course_id: int
-    start_time: datetime
-    end_time: datetime
-    session_code: str = None  # เผื่อใช้รหัสเข้าห้อง
-
-
 # ---------------------------------------------------------
 
 
@@ -105,48 +98,10 @@ async def create_course(
 async def get_my_courses(
     db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    # ดึงเฉพาะวิชาที่ teacher_id ตรงกับคนที่ Login อยู่
     result = await db.execute(
         select(Course).where(Course.teacher_id == current_user.id)
     )
     return result.scalars().all()
-
-
-# 3. เปิดคาบเรียน (Start Session) - จุดเริ่มต้นของการเช็คชื่อ!
-@router.post("/sessions/start")
-async def start_session(
-    session_data: SessionCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    # เช็คก่อนว่าเป็นเจ้าของวิชานี้ไหม
-    result = await db.execute(select(Course).where(Course.id == session_data.course_id))
-    course = result.scalars().first()
-
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
-    if course.teacher_id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="You are not the teacher of this course"
-        )
-
-    # สร้าง Session
-    new_session = ClassSession(
-        course_id=session_data.course_id,
-        start_time=session_data.start_time,
-        end_time=session_data.end_time,
-        session_code=session_data.session_code,
-        is_active=True,  # ✅ เปิด Active ทันที แปลว่าระบบพร้อมรับสแกนหน้า
-    )
-    db.add(new_session)
-    await db.commit()
-    await db.refresh(new_session)
-
-    return {
-        "status": "success",
-        "session_id": new_session.id,
-        "message": "Class started! Ready for attendance.",
-    }
 
 
 # 4. ดู Session ที่กำลัง Active อยู่ (สำหรับหน้า Dashboard)
@@ -164,24 +119,6 @@ async def get_active_sessions(
     result = await db.execute(stmt)
     sessions = result.scalars().all()
     return sessions
-
-
-# 5. ปิดคาบเรียน (End Session)
-@router.post("/sessions/{session_id}/end")
-async def end_session(
-    session_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    result = await db.execute(select(ClassSession).where(ClassSession.id == session_id))
-    session = result.scalars().first()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session.is_active = False  # ปิดรับสแกน
-    await db.commit()
-    return {"status": "success", "message": "Class ended."}
 
 
 @router.get("/courses/search/{course_code}")
@@ -269,56 +206,55 @@ async def delete_course(
     }
 
 
+# API :
 @router.get("/courses/{course_id}/sessions")
 async def get_course_sessions(course_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ClassSession)
         .where(ClassSession.course_id == course_id)
-        .order_by(ClassSession.id)
+        .order_by(ClassSession.week_number)
     )
-    return result.scalars().all()
+    sessions = result.scalars().all()
+
+    return [
+        {
+            "id": s.id,
+            "week_number": s.week_number,
+            "date": s.date,
+            "is_active": s.is_active,
+        }
+        for s in sessions
+    ]
 
 
-# ✅ API: เริ่มคลาสเรียน (Start Session)
+# API: เริ่มคลาสเรียน (Start Session)
 @router.post("/sessions/{session_id}/start")
 async def start_session(
     session_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # 1. เช็คก่อนว่าอาจารย์คนนี้มี Session อื่น Active อยู่ไหม? (ป้องกันการเปิดซ้อน)
-    # ต้อง Join ไปหา Course เพื่อเช็ค teacher_id
-    active_check = await db.execute(
-        select(ClassSession)
-        .join(Course)
-        .where(Course.teacher_id == current_user.id, ClassSession.is_active == True)
-    )
-    existing_active = active_check.scalars().first()
-
-    if existing_active:
-        # ถ้า Session ที่ Active อยู่ไม่ใช่ตัวที่เรากำลังจะเปิด แสดงว่าลืมปิดอันเก่า
-        if existing_active.id != session_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"คุณมี Session อื่น ({existing_active.id}) กำลัง Live อยู่ กรุณาปิดก่อน",
-            )
-
-    # 2. ดึงข้อมูล Session ที่ต้องการเปิด
     result = await db.execute(select(ClassSession).where(ClassSession.id == session_id))
     session = result.scalars().first()
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # 3. อัปเดตสถานะ และเวลาเริ่มจริง (ถ้ามี field เก็บเวลาจริง)
-    session.is_active = True
-    # session.actual_start_time = datetime.now() # แนะนำให้เพิ่ม Field นี้ใน Database ในอนาคต
+    # 🔴 ดักไว้: ถ้าคลาสเรียนจบไปแล้ว ห้ามกดเปิดใหม่!
+    if session.status == "completed":
+        raise HTTPException(status_code=400, detail="คลาสเรียนนี้จบไปแล้ว ไม่สามารถเปิดซ้ำได้")
 
+    # 🔴 ดักไว้: ถ้าคลาสกำลังเปิดอยู่แล้ว
+    if session.is_active or session.status == "active":
+        raise HTTPException(status_code=400, detail="Session is already active")
+
+    session.is_active = True
+    session.status = "active"  # อัปเดตสถานะเป็นกำลังเรียน
     await db.commit()
     return {"message": "Session started", "status": "active"}
 
 
-# ✅ API: จบคลาสเรียน (End Session)
+# API: จบคลาสเรียน (End Session)
 @router.post("/sessions/{session_id}/end")
 async def end_session(
     session_id: int,
@@ -332,7 +268,62 @@ async def end_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     session.is_active = False
-    # session.actual_end_time = datetime.now() # แนะนำให้เพิ่ม Field นี้ใน Database ในอนาคต
+    session.status = "completed"  # 🔴 อัปเดตสถานะเป็น "เรียนจบแล้ว" ปิดตายคลาสนี้
 
     await db.commit()
     return {"message": "Session ended", "status": "finished"}
+
+
+# API : ดึงรายชื่อเด็กที่ enroll
+@router.get("/courses/{course_id}/students")
+async def get_enrolled_students(course_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(User)
+        .join(Enrollment, User.id == Enrollment.student_id)
+        .where(Enrollment.course_id == course_id)
+    )
+    students = result.scalars().all()
+
+    return [
+        {
+            "id": s.id,
+            # ถ้ามีฟิลด์ student_id ให้ใช้ ถ้าไม่มีให้เอา email ตัด @ ออกแก้ขัด
+            "student_id": getattr(
+                s, "student_id", s.email.split("@")[0] if "@" in s.email else s.email
+            ),
+            "name": s.full_name or "Unknown Student",
+        }
+        for s in students
+    ]
+
+
+# API: ดึงประวัติการเช็คชื่อย้อนหลังของ Session นั้นๆ
+@router.get("/sessions/{session_id}/attendance")
+async def get_session_attendance(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # ดึงข้อมูลการเช็คชื่อ พร้อม Join กับตาราง User เพื่อเอาชื่อเด็ก
+    result = await db.execute(
+        select(Attendance, User)
+        .join(User, Attendance.student_id == User.id)
+        .where(Attendance.session_id == session_id)
+        .order_by(Attendance.timestamp.desc())  # เรียงจากคนที่สแกนล่าสุด
+    )
+    records = result.all()
+
+    # จัดรูปแบบข้อมูลส่งกลับไปให้หน้า React
+    return [
+        {
+            "student_id": user.id,
+            "student_email": user.email,
+            "student_name": user.full_name,
+            "status": att.status.value
+            if hasattr(att.status, "value")
+            else att.status,  # present, late, absent
+            "timestamp": att.timestamp,
+            "confidence": att.confidence_score,
+        }
+        for att, user in records
+    ]
