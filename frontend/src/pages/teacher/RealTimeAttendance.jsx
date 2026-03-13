@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import Webcam from "react-webcam";
 import * as faceapi from "face-api.js";
-import axios from "axios";
+import api from "../../api/axios"; // ✅ ใช้ api interceptor (auto token, base URL)
 import {
   FiUsers,
   FiCheckCircle,
@@ -25,7 +25,6 @@ const RealTimeAttendance = () => {
   const isSessionActiveRef = useRef(true);
 
   const [logs, setLogs] = useState([]);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isSessionActive, setIsSessionActive] = useState(true);
   const [statusLabel, setStatusLabel] = useState("Loading model...");
@@ -33,49 +32,48 @@ const RealTimeAttendance = () => {
   const [sessionInfo, setSessionInfo] = useState(null);
   const [isFetchingAttendance, setIsFetchingAttendance] = useState(true);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
 
   const deviceId = location.state?.deviceId;
   const room = location.state?.room;
+  const courseName = location.state?.courseName || "";
+  const courseCode = location.state?.courseCode || "";
+  const weekNumber = location.state?.weekNumber || "";
 
-  // 0. บอก Sidebar ว่ามี Live Session
+  // Tell Sidebar there's an active session
   useEffect(() => {
     localStorage.setItem("active_session_id", sessionId);
     window.dispatchEvent(new Event("storage"));
   }, [sessionId]);
 
-  // 1. Fetch existing attendance records + session info on mount
+  // Fetch existing attendance + session info on mount (handles page refresh)
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const token = localStorage.getItem("token");
-        const headers = { Authorization: `Bearer ${token}` };
+        // Fetch attendance records for this session
+        const attRes = await api.get(`/sessions/${sessionId}/attendance`);
+        const data = attRes.data;
 
-        // ดึง session info
-        const sessionRes = await axios.get(
-          `http://localhost:8000/sessions/${sessionId}`,
-          { headers },
-        );
-        setSessionInfo(sessionRes.data);
+        // Store session info from response
+        if (data.session) setSessionInfo(data.session);
 
-        // ถ้า session completed แล้ว → redirect ไปหน้าสรุปทันที
-        if (sessionRes.data.status === "completed") {
-          navigate(`/teacher/session/${sessionId}/summary`, { replace: true });
-          return;
-        }
-
-        // ดึง attendance ที่มีอยู่แล้ว (กรณี refresh หน้า)
-        const attRes = await axios.get(
-          `http://localhost:8000/sessions/${sessionId}/attendance`,
-          { headers },
-        );
-        const existingLogs = attRes.data.map((att) => ({
-          id: att.id,
-          student_name: att.student_name,
-          student_id: att.student_id,
-          time: new Date(att.timestamp).toLocaleTimeString("th-TH"),
-          confidence: att.confidence_score ? att.confidence_score / 100 : null,
-          status: att.status,
-        }));
+        // Restore existing logs
+        const existingLogs = (data.records || [])
+          .filter((r) => r.status !== "absent") // Only show checked-in students
+          .map((att) => ({
+            id: att.attendance_id,
+            student_name: att.name,
+            student_id: att.student_id,
+            time: att.timestamp
+              ? new Date(att.timestamp).toLocaleTimeString("en-US", {
+                  hour12: false,
+                })
+              : "--:--",
+            confidence: att.confidence_score
+              ? att.confidence_score / 100
+              : null,
+            status: att.status,
+          }));
         setLogs(existingLogs);
       } catch (err) {
         console.error("Fetch initial data error:", err);
@@ -87,7 +85,7 @@ const RealTimeAttendance = () => {
     fetchInitialData();
   }, [sessionId, navigate]);
 
-  // 2. โหลด Face Detection Model
+  // Load face-api model
   useEffect(() => {
     const loadModels = async () => {
       const MODEL_URL = "/models";
@@ -103,46 +101,50 @@ const RealTimeAttendance = () => {
     loadModels();
   }, []);
 
-  // 3. ยิง API check-in
+  // Fire check-in API
   const handleCheckIn = useCallback(async () => {
     if (isProcessingRef.current || !webcamRef.current) return;
 
     isProcessingRef.current = true;
-    setIsProcessing(true);
     setStatusLabel("Processing...");
 
     try {
       const imageSrc = webcamRef.current.getScreenshot();
       if (!imageSrc) return;
 
-      const res = await axios.post(
-        "http://localhost:8000/attendance/recognize",
-        { session_id: parseInt(sessionId), image: imageSrc },
-      );
+      const res = await api.post("/attendance/recognize", {
+        session_id: parseInt(sessionId),
+        image: imageSrc,
+      });
 
       if (res.data.status === "detected") {
         const student = res.data.student;
         setStatusLabel(`✓ ${student.name}`);
-        setLogs((prev) => {
-          // ป้องกัน duplicate
-          if (prev.find((l) => l.student_id === student.student_id))
-            return prev;
-          return [
-            {
-              id: Date.now(),
-              student_name: student.name,
-              student_id: student.student_id,
-              time: new Date().toLocaleTimeString("th-TH"),
-              confidence: student.confidence / 100,
-              status: "present",
-            },
-            ...prev,
-          ];
-        });
+
+        // Only add to log if not already_recorded
+        if (!res.data.already_recorded) {
+          setLogs((prev) => {
+            if (prev.find((l) => l.student_id === student.student_id))
+              return prev;
+            return [
+              {
+                id: Date.now(),
+                student_name: student.name,
+                student_id: student.student_id,
+                time: new Date().toLocaleTimeString("en-US", { hour12: false }),
+                confidence: student.confidence
+                  ? student.confidence / 100
+                  : null,
+                status: student.status || "present",
+              },
+              ...prev,
+            ];
+          });
+        }
       } else if (res.data.status === "unknown") {
-        setStatusLabel("ไม่รู้จัก");
+        setStatusLabel("Unknown face");
       } else {
-        setStatusLabel("ไม่พบใบหน้า");
+        setStatusLabel("No face matched");
       }
     } catch (err) {
       console.error("Check-in error:", err);
@@ -150,13 +152,12 @@ const RealTimeAttendance = () => {
     } finally {
       setTimeout(() => {
         isProcessingRef.current = false;
-        setIsProcessing(false);
         if (isSessionActiveRef.current) setStatusLabel("Scanning...");
       }, 2000);
     }
   }, [sessionId]);
 
-  // 4. Main Detection Loop
+  // Main detection loop — beautiful corner bracket drawing
   useEffect(() => {
     if (!isModelLoaded) return;
 
@@ -194,16 +195,21 @@ const RealTimeAttendance = () => {
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, displaySize.width, displaySize.height);
 
+      // Draw corner bracket boxes
       resized.forEach((detection) => {
         const { x, y, width, height } = detection.box;
         const boxColor = isProcessingRef.current ? "#f59e0b" : "#22c55e";
-
-        ctx.strokeStyle = boxColor;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, width, height);
-
         const cornerLen = 16;
-        ctx.lineWidth = 4;
+
+        // Thin border
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.4;
+        ctx.strokeRect(x, y, width, height);
+        ctx.globalAlpha = 1;
+
+        // Corner brackets
+        ctx.lineWidth = 3;
         ctx.strokeStyle = boxColor;
         [
           [x, y + cornerLen, x, y, x + cornerLen, y],
@@ -225,15 +231,19 @@ const RealTimeAttendance = () => {
           ctx.stroke();
         });
 
+        // Label pill
         const label = isProcessingRef.current
           ? "Processing..."
           : "Face Detected";
+        ctx.font = "bold 12px sans-serif";
         const labelW = ctx.measureText(label).width + 16;
         ctx.fillStyle = boxColor;
-        ctx.fillRect(x, y - 26, labelW, 24);
+        ctx.beginPath();
+        ctx.roundRect?.(x, y - 26, labelW, 22, 4) ||
+          ctx.fillRect(x, y - 26, labelW, 22);
+        ctx.fill();
         ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 12px sans-serif";
-        ctx.fillText(label, x + 8, y - 9);
+        ctx.fillText(label, x + 8, y - 10);
       });
 
       if (resized.length > 0 && !isProcessingRef.current) {
@@ -244,13 +254,14 @@ const RealTimeAttendance = () => {
     return () => clearInterval(interval);
   }, [isModelLoaded, handleCheckIn]);
 
-  // 5. End Session — เคลียร์ทุกอย่าง แล้ว navigate ไปหน้าสรุป
+  // End session — call API, mark absentees, redirect to dashboard
   const handleStopSession = async () => {
-    setShowEndConfirm(false);
+    setEndingSession(true);
     isSessionActiveRef.current = false;
     setIsSessionActive(false);
     setStatusLabel("Session Ended");
 
+    // Clear canvas
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext("2d");
@@ -258,12 +269,7 @@ const RealTimeAttendance = () => {
     }
 
     try {
-      const token = localStorage.getItem("token");
-      await axios.post(
-        `http://localhost:8000/sessions/${sessionId}/end`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      await api.post(`/sessions/${sessionId}/end`);
     } catch (e) {
       console.error("End session API error:", e);
     }
@@ -271,8 +277,14 @@ const RealTimeAttendance = () => {
     localStorage.removeItem("active_session_id");
     window.dispatchEvent(new Event("storage"));
 
-    // ✅ Navigate ไปหน้าสรุปทันที
-    navigate(`/teacher/session/${sessionId}/summary`);
+    setShowEndConfirm(false);
+    setEndingSession(false);
+
+    navigate("/teacher/dashboard", {
+      state: {
+        message: `Session Week ${weekNumber} ended. Absent students marked automatically.`,
+      },
+    });
   };
 
   const videoConstraints = deviceId
@@ -293,30 +305,42 @@ const RealTimeAttendance = () => {
               </div>
               <div>
                 <h3 className="font-bold text-gray-800 text-lg">
-                  ยืนยันปิดคาบเรียน?
+                  End Class Session?
                 </h3>
                 <p className="text-sm text-gray-500">
-                  จะไม่สามารถสแกนเพิ่มได้อีก
+                  No more check-ins will be accepted
                 </p>
               </div>
             </div>
             <p className="text-sm text-gray-600 mb-6 bg-gray-50 p-3 rounded-xl">
-              มีนักศึกษาเช็คชื่อแล้ว{" "}
-              <span className="font-bold text-blue-600">{logs.length} คน</span>{" "}
-              ระบบจะบันทึกผลและแสดงรายงานสรุป
+              <span className="font-bold text-blue-600">
+                {logs.length} student(s)
+              </span>{" "}
+              have checked in. Students who did not check in will be marked as{" "}
+              <span className="font-bold text-rose-500">Absent</span>{" "}
+              automatically.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowEndConfirm(false)}
-                className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition"
+                disabled={endingSession}
+                className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-600 font-semibold rounded-xl hover:bg-gray-50 transition disabled:opacity-50"
               >
-                ยกเลิก
+                Continue
               </button>
               <button
                 onClick={handleStopSession}
-                className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition shadow-lg shadow-red-200"
+                disabled={endingSession}
+                className="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl transition shadow-lg shadow-red-200 disabled:opacity-60 flex items-center justify-center gap-2"
               >
-                ปิดคาบเรียน
+                {endingSession ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    Ending...
+                  </>
+                ) : (
+                  "End Session"
+                )}
               </button>
             </div>
           </div>
@@ -335,10 +359,30 @@ const RealTimeAttendance = () => {
                 />
                 Live Attendance
               </h1>
-              <p className="text-blue-100 opacity-90 pl-1">
-                Session #{sessionId}
-                {sessionInfo && ` · ${sessionInfo.course_code || ""}`}
-                {room && ` · ห้อง ${room}`}
+              <p className="text-blue-100 opacity-90 pl-1 flex items-center gap-3 flex-wrap">
+                <span>Session #{sessionId}</span>
+                {(courseCode || courseName) && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="font-semibold">
+                      {courseCode} {courseName && `— ${courseName}`}
+                    </span>
+                  </>
+                )}
+                {weekNumber && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs font-bold">
+                      Week {weekNumber}
+                    </span>
+                  </>
+                )}
+                {room && (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span>Room {room}</span>
+                  </>
+                )}
               </p>
             </div>
 
@@ -355,12 +399,10 @@ const RealTimeAttendance = () => {
                   Session Ended
                 </span>
                 <button
-                  onClick={() =>
-                    navigate(`/teacher/session/${sessionId}/summary`)
-                  }
+                  onClick={() => navigate("/teacher/dashboard")}
                   className="px-5 py-2.5 bg-white text-blue-700 font-bold rounded-xl shadow hover:bg-blue-50 transition-all text-sm"
                 >
-                  ดูรายงาน →
+                  Back to Dashboard →
                 </button>
               </div>
             )}
@@ -392,7 +434,11 @@ const RealTimeAttendance = () => {
               <div className="absolute top-4 left-4 right-4 flex justify-between items-center">
                 <div className="flex items-center gap-2 bg-black/60 text-white px-4 py-1.5 rounded-full text-sm backdrop-blur-md">
                   <div
-                    className={`w-2.5 h-2.5 rounded-full ${isSessionActive ? "bg-green-400 animate-pulse" : "bg-red-500"}`}
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      isSessionActive
+                        ? "bg-green-400 animate-pulse"
+                        : "bg-red-500"
+                    }`}
                   />
                   <span className="font-semibold">{statusLabel}</span>
                 </div>
@@ -400,12 +446,13 @@ const RealTimeAttendance = () => {
                   <div className="flex items-center gap-2 bg-black/60 text-white px-4 py-1.5 rounded-full text-sm backdrop-blur-md">
                     <FiUsers size={14} />
                     <span className="font-semibold">
-                      {faceCount} face{faceCount !== 1 ? "s" : ""}
+                      {faceCount} face{faceCount !== 1 ? "s" : ""} detected
                     </span>
                   </div>
                 )}
               </div>
 
+              {/* Model loading overlay */}
               {!isModelLoaded && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
                   <div className="text-center text-white">
@@ -415,6 +462,7 @@ const RealTimeAttendance = () => {
                 </div>
               )}
 
+              {/* Session ended overlay */}
               {!isSessionActive && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
                   <div className="text-center text-white">
@@ -427,12 +475,10 @@ const RealTimeAttendance = () => {
                       {logs.length} student(s) recorded
                     </p>
                     <button
-                      onClick={() =>
-                        navigate(`/teacher/session/${sessionId}/summary`)
-                      }
+                      onClick={() => navigate("/teacher/dashboard")}
                       className="mt-4 px-6 py-2 bg-white text-blue-700 font-bold rounded-xl text-sm hover:bg-blue-50 transition"
                     >
-                      ดูรายงาน →
+                      Back to Dashboard →
                     </button>
                   </div>
                 </div>
@@ -444,14 +490,14 @@ const RealTimeAttendance = () => {
               <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <h3 className="font-bold text-gray-800 flex items-center gap-2">
                   <FiUsers size={16} className="text-blue-500" />
-                  Present
+                  Checked In
                 </h3>
                 <div className="flex items-center gap-2">
                   {isFetchingAttendance && (
                     <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
                   )}
                   <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">
-                    {logs.length} คน
+                    {logs.length} students
                   </span>
                 </div>
               </div>
@@ -460,9 +506,11 @@ const RealTimeAttendance = () => {
                 {logs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-400 text-center pb-10">
                     <FiWifi size={32} className="mb-3 opacity-40" />
-                    <p className="font-semibold text-sm">รอนักศึกษา...</p>
+                    <p className="font-semibold text-sm">
+                      Waiting for students...
+                    </p>
                     <p className="text-xs mt-1 opacity-60">
-                      ยืนหน้ากล้องเพื่อเช็คชื่อ
+                      Students should face the camera to check in
                     </p>
                   </div>
                 ) : (
@@ -484,14 +532,18 @@ const RealTimeAttendance = () => {
                       </div>
                       <div className="text-right flex-shrink-0">
                         <span
-                          className={`flex items-center text-xs gap-1 font-bold ${log.status === "late" ? "text-amber-500" : "text-green-500"}`}
+                          className={`flex items-center text-xs gap-1 font-bold ${
+                            log.status === "late"
+                              ? "text-amber-500"
+                              : "text-green-500"
+                          }`}
                         >
                           <FiCheckCircle size={12} />
                           {log.time}
                         </span>
                         {log.status === "late" && (
                           <span className="text-xs text-amber-400 font-medium flex items-center gap-0.5 justify-end mt-0.5">
-                            <FiClock size={10} /> สาย
+                            <FiClock size={10} /> Late
                           </span>
                         )}
                         {log.confidence && (
@@ -508,7 +560,7 @@ const RealTimeAttendance = () => {
               {logs.length > 0 && (
                 <div className="px-5 py-3 border-t border-gray-100 bg-gray-50/50">
                   <p className="text-xs text-gray-400 text-center font-medium">
-                    Auto-saved · {new Date().toLocaleDateString("th-TH")}
+                    Auto-saved · {new Date().toLocaleDateString("en-US")}
                   </p>
                 </div>
               )}
