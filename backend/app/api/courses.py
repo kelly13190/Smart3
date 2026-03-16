@@ -16,9 +16,6 @@ from pydantic import BaseModel
 router = APIRouter()
 
 
-# ── Pydantic Schemas ──────────────────────────────────────────────────────────
-
-
 class CourseCreate(BaseModel):
     course_code: str
     section: str
@@ -80,9 +77,6 @@ class StartSessionRequest(BaseModel):
     room: Optional[str] = None
 
 
-# ── Course Endpoints ──────────────────────────────────────────────────────────
-
-
 # 1. Create course
 @router.post("/courses/", response_model=CourseResponse)
 async def create_course(
@@ -116,7 +110,7 @@ async def create_course(
     return new_course
 
 
-# 2. Get my courses
+# 2. Get my courses (สำหรับอาจารย์)
 @router.get("/courses/my-courses", response_model=List[CourseResponse])
 async def get_my_courses(
     db: AsyncSession = Depends(get_db),
@@ -124,6 +118,19 @@ async def get_my_courses(
 ):
     result = await db.execute(
         select(Course).where(Course.teacher_id == current_user.id)
+    )
+    return result.scalars().all()
+
+
+@router.get("/student/my-courses", response_model=List[CourseResponse])
+async def get_student_courses(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Course)
+        .join(Enrollment, Course.id == Enrollment.course_id)
+        .where(Enrollment.student_id == current_user.id)
     )
     return result.scalars().all()
 
@@ -423,7 +430,17 @@ async def get_session_attendance(
     session = sess_result.scalars().first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if session.course.teacher_id != current_user.id:
+
+    is_teacher = session.course.teacher_id == current_user.id
+    enroll_check = await db.execute(
+        select(Enrollment).where(
+            Enrollment.course_id == session.course_id,
+            Enrollment.student_id == current_user.id,
+        )
+    )
+    is_student = enroll_check.scalars().first() is not None
+
+    if not is_teacher and not is_student:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     att_result = await db.execute(
@@ -533,7 +550,16 @@ async def get_course_report(
     course = result.scalars().first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    if course.teacher_id != current_user.id:
+
+    is_teacher = course.teacher_id == current_user.id
+    enroll_check = await db.execute(
+        select(Enrollment).where(
+            Enrollment.course_id == course_id, Enrollment.student_id == current_user.id
+        )
+    )
+    is_student = enroll_check.scalars().first() is not None
+
+    if not is_teacher and not is_student:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     enroll_result = await db.execute(

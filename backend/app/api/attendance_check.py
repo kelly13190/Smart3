@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.models.users import User
 from app.models.face import FaceEmbedding
-from app.models.course import Course
+from app.models.course import Course, Enrollment
 from app.models.attendance import Attendance, ClassSession, AttendanceStatus
 from pydantic import BaseModel
 from deepface import DeepFace
@@ -107,7 +107,7 @@ async def recognize_student(
             embedding_objs = DeepFace.represent(
                 img_path=input_image_np,
                 model_name="ArcFace",
-                detector_backend="mediapipe",
+                detector_backend="opencv",
                 enforce_detection=False,
                 align=True,
             )
@@ -140,6 +140,19 @@ async def recognize_student(
         student = await db.get(User, best_user_id)
         if not student:
             return {"status": "error", "message": "User not found in database"}
+        enrollment_check = await db.execute(
+            select(Enrollment).where(
+                Enrollment.course_id == session.course_id,
+                Enrollment.student_id == student.id,
+            )
+        )
+        is_enrolled = enrollment_check.scalars().first()
+
+        if not is_enrolled:
+            return {
+                "status": "error",
+                "message": f"Student {student.full_name} is not enrolled in this course.",
+            }
 
         # 6. Check for duplicate
         existing = await db.execute(
