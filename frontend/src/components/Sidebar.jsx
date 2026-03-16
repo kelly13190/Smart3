@@ -106,11 +106,11 @@ const Sidebar = () => {
           label: "Attendance Report",
           path: "/teacher/attendance-report",
         },
-        {
-          icon: <FiFileText />,
-          label: "Reports",
-          path: "/teacher/reports",
-        },
+        // {
+        //   icon: <FiFileText />,
+        //   label: "Reports",
+        //   path: "/teacher/reports",
+        // },
       ];
     } else {
       // Student

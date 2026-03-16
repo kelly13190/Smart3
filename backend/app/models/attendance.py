@@ -9,7 +9,7 @@ from sqlalchemy import (
     Time,
     ForeignKey,
     DateTime,
-    Enum,
+    Float,
 )
 from sqlalchemy.orm import relationship
 from app.core.database import Base
@@ -33,9 +33,15 @@ class ClassSession(Base):
     end_time = Column(Time)
     is_active = Column(Boolean, default=False)
     session_code = Column(String, nullable=True)
-    status = Column(String, default="pending") # มี 3 สถานะ: pending, active, completed
 
-    # Relationship
+    # ✅ เวลาจริง (บันทึกตอน Start/End)
+    actual_start_time = Column(DateTime, nullable=True)
+    actual_end_time = Column(DateTime, nullable=True)
+
+    # ✅ ข้อมูลเพิ่มเติม
+    topic = Column(String, nullable=True)  # หัวข้อที่สอนวันนี้
+    room = Column(String, nullable=True)  # ห้องเรียน
+
     course = relationship("Course", back_populates="sessions")
     attendances = relationship(
         "Attendance", back_populates="session", cascade="all, delete-orphan"
@@ -50,9 +56,7 @@ class Attendance(Base):
     student_id = Column(Integer, ForeignKey("users.id"))
     timestamp = Column(DateTime, default=datetime.utcnow)
     status = Column(String, default=AttendanceStatus.ABSENT)
-
     confidence_score = Column(Integer, nullable=True)
 
-    # Relationship
     session = relationship("ClassSession", back_populates="attendances")
     student = relationship("User", back_populates="attendances")
