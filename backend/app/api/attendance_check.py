@@ -8,16 +8,16 @@ from app.models.face import FaceEmbedding
 from app.models.course import Course, Enrollment
 from app.models.attendance import Attendance, ClassSession, AttendanceStatus
 from pydantic import BaseModel
-from deepface import DeepFace
 import numpy as np
 import base64
 import io
 from PIL import Image
 from datetime import datetime
+from app.api.face_register import get_face_app
 
 router = APIRouter()
 
-COSINE_THRESHOLD = 0.35  # Minimum similarity to accept a match
+COSINE_THRESHOLD = 0.35
 
 
 class CheckInRequest(BaseModel):
@@ -25,11 +25,13 @@ class CheckInRequest(BaseModel):
     image: str
 
 
-def base64_to_image(base64_string: str):
+def base64_to_image(base64_string: str) -> np.ndarray:
     if "base64," in base64_string:
         base64_string = base64_string.split(",")[1]
     image_data = base64.b64decode(base64_string)
-    return Image.open(io.BytesIO(image_data)).convert("RGB")
+    image = Image.open(io.BytesIO(image_data)).convert("RGB")
+    img_array = np.array(image)
+    return img_array[:, :, ::-1]  # RGB → BGR
 
 
 def cosine_similarity(v1, v2) -> float:
@@ -39,28 +41,17 @@ def cosine_similarity(v1, v2) -> float:
     return float(np.dot(v1, v2) / (n1 * n2))
 
 
-def determine_status(
-    session: ClassSession, course: Course, now: datetime
-) -> AttendanceStatus:
-    """
-    Determine attendance status based on minutes elapsed since actual_start_time.
-
-    Timeline:
-      0 ─────── late_after_minutes ─────── absent_after_minutes ───▶
-      PRESENT          LATE                    ABSENT (locked out)
-
-    If actual_start_time is not set, default to PRESENT.
-    """
+def determine_status(session: ClassSession, course: Course, now: datetime):
     if not session.actual_start_time:
         return AttendanceStatus.PRESENT
 
-    elapsed = (now - session.actual_start_time).total_seconds() / 60  # minutes
+    elapsed = (now - session.actual_start_time).total_seconds() / 60
 
     absent_after = course.absent_after_minutes if course.absent_after_minutes else 60
     late_after = course.late_after_minutes if course.late_after_minutes else 15
 
     if elapsed >= absent_after:
-        return None  # Locked out — too late to check in
+        return None
     elif elapsed >= late_after:
         return AttendanceStatus.LATE
     else:
@@ -73,7 +64,6 @@ async def recognize_student(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        # 1. Validate session is active — load with course for threshold values
         sess_result = await db.execute(
             select(ClassSession)
             .options(selectinload(ClassSession.course))
@@ -87,37 +77,28 @@ async def recognize_student(
             return {"status": "error", "message": "Session is not active"}
 
         course = session.course
-
-        # 2. Check if check-in window is still open
         now = datetime.now()
         computed_status = determine_status(session, course, now)
 
         if computed_status is None:
-            # Past absent_after_minutes — no longer accepting check-ins
             absent_after = course.absent_after_minutes or 60
             return {
                 "status": "locked",
                 "message": f"Check-in closed — more than {absent_after} minutes have passed",
             }
 
-        # 3. Convert image to ArcFace embedding vector
-        input_image_np = np.array(base64_to_image(req.image))
+        # สร้าง embedding ด้วย InsightFace
+        img_bgr = base64_to_image(req.image)
+        face_app = get_face_app()
 
         try:
-            embedding_objs = DeepFace.represent(
-                img_path=input_image_np,
-                model_name="ArcFace",
-                detector_backend="opencv",
-                enforce_detection=False,
-                align=True,
-            )
-            if not embedding_objs:
+            faces = face_app.get(img_bgr)
+            if not faces:
                 return {"status": "unknown", "message": "No face detected"}
-            input_vector = np.array(embedding_objs[0]["embedding"])
+            input_vector = np.array(faces[0].normed_embedding)
         except Exception as e:
             return {"status": "unknown", "message": f"Face detection failed: {str(e)}"}
 
-        # 4. Find best matching face in DB
         result = await db.execute(select(FaceEmbedding))
         all_faces = result.scalars().all()
 
@@ -136,10 +117,10 @@ async def recognize_student(
         if best_user_id is None or best_similarity < COSINE_THRESHOLD:
             return {"status": "unknown", "message": "Face not recognized"}
 
-        # 5. Verify student exists
         student = await db.get(User, best_user_id)
         if not student:
             return {"status": "error", "message": "User not found in database"}
+
         enrollment_check = await db.execute(
             select(Enrollment).where(
                 Enrollment.course_id == session.course_id,
@@ -154,7 +135,6 @@ async def recognize_student(
                 "message": f"Student {student.full_name} is not enrolled in this course.",
             }
 
-        # 6. Check for duplicate
         existing = await db.execute(
             select(Attendance).where(
                 Attendance.session_id == req.session_id,
@@ -164,7 +144,6 @@ async def recognize_student(
         already_checked = existing.scalars().first()
 
         if not already_checked:
-            # Save attendance with computed status (present or late)
             db.add(
                 Attendance(
                     student_id=student.id,
