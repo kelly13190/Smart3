@@ -43,7 +43,7 @@ idna==3.11
 itsdangerous==2.2.0
 Jinja2==3.1.6
 joblib==1.5.3
-keras==3.12.0
+keras==2.13.1
 libclang==18.1.1
 lightdsa==0.0.3
 lightecc==0.0.4
@@ -98,7 +98,7 @@ tensorboard==2.20.0
 tensorboard-data-server==0.7.2
 tensorflow-cpu==2.13.1
 termcolor==3.3.0
-tf_keras==2.14.0
+tf_keras==2.14.1
 tqdm==4.67.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
