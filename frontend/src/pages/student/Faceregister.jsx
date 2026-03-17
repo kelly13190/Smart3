@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Webcam from "react-webcam";
-import axios from "axios";
+import api from "../../api/axios";
 import * as faceapi from "face-api.js"; // Import face-api
 import {
   FiCamera,
@@ -176,21 +176,8 @@ const FaceRegister = () => {
       // ใช้รูปหน้าตรง (index 0) หรือรูปล่าสุด
       const bestImage = imagesRef.current[0] || lastImage;
 
-      // 🔑 1. ดึง Token ออกมาจาก LocalStorage
-      const token = localStorage.getItem("token");
+      await api.post("/student/register-face", { image: bestImage });
 
-      // 🔑 2. แนบ Header ไปพร้อมกับ Request
-      await axios.post(
-        "http://localhost:8000/student/register-face",
-        {
-          image: bestImage,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`, // ขาดบรรทัดนี้ไม่ได้เลยครับ!
-          },
-        },
-      );
 
       setIsSuccess(true);
       alert("ลงทะเบียนใบหน้าสำเร็จ!"); // เพิ่ม alert ให้รู้ว่าเสร็จแล้ว

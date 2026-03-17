@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
-import axios from "axios";
+import api from "../api/axios";
 import facial from "../assets/facial.gif";
 
 const Login = () => {
@@ -57,7 +57,7 @@ const Login = () => {
       formData.append("username", email);
       formData.append("password", password);
 
-      const res = await axios.post("http://localhost:8000/token", formData);
+      const res = await api.post("/token", formData);
       handleLoginSuccessData(res.data);
     } catch (err) {
       console.error(err);
@@ -69,7 +69,7 @@ const Login = () => {
   const handleGoogleSuccess = async (credentialResponse) => {
     setError("");
     try {
-      const res = await axios.post("http://localhost:8000/google-login", {
+      const res = await api.post("/google-login", {
         token: credentialResponse.credential,
       });
       handleLoginSuccessData(res.data);
