@@ -23,6 +23,11 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_CPP_MAX_VLOG_LEVEL=-1
+      - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
     depends_on:
       - db
     networks:
