@@ -9,21 +9,20 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libgl1 \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 
-# ติดตั้ง numpy 1.24.4 ก่อน และ pin ไว้
-RUN pip install --no-cache-dir "numpy==1.24.4"
+# ติดตั้ง build tools + numpy ก่อน
+RUN pip install --no-cache-dir "numpy==1.24.4" "Cython" "setuptools" "wheel"
 
-# ติดตั้ง insightface แบบไม่ build จาก source
-RUN pip install --no-cache-dir --only-binary=:all: insightface==0.7.3 || \
-    pip install --no-cache-dir \
-    "numpy==1.24.4" \
-    "insightface==0.7.3" \
-    --no-build-isolation
+# ติดตั้ง insightface พร้อม build tools
+RUN pip install --no-cache-dir "insightface==0.7.3" --no-build-isolation
 
-RUN pip install --no-cache-dir -r requirements.txt --no-deps
+# ติดตั้ง dependencies ที่เหลือ
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
