@@ -23,11 +23,6 @@ services:
     restart: always
     env_file:
       - .env
-    environment:
-      - TF_CPP_MIN_LOG_LEVEL=3
-      - TF_ENABLE_ONEDNN_OPTS=0
-      - TF_CPP_MAX_VLOG_LEVEL=-1
-      - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
     depends_on:
       - db
     networks:
@@ -47,8 +42,10 @@ services:
     restart: always
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       - backend
       - frontend
